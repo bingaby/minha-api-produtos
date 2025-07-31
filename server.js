@@ -40,14 +40,15 @@ pool.connect((err) => {
   }
   console.log('Conectado ao PostgreSQL');
   pool.query(`
-    CREATE TABLE IF NOT EXISTS produtos (
+    DROP TABLE IF EXISTS produtos;
+    CREATE TABLE produtos (
       id SERIAL PRIMARY KEY,
-      nome VARCHAR(255) NOT NULL,
+      nome TEXT NOT NULL,
       descricao TEXT,
-      preco DECIMAL(10,2) NOT NULL,
-      imagens TEXT[] NOT NULL,
-      categoria VARCHAR(100) NOT NULL,
-      loja VARCHAR(100) NOT NULL,
+      preco NUMERIC NOT NULL,
+      imagens TEXT[],
+      categoria TEXT NOT NULL,
+      loja TEXT NOT NULL,
       link TEXT NOT NULL
     )
   `, (err) => {
@@ -55,7 +56,7 @@ pool.connect((err) => {
       console.error('Erro ao criar tabela produtos:', err);
       process.exit(1);
     }
-    console.log('Tabela produtos verificada/criada');
+    console.log('Tabela produtos recriada');
   });
 });
 
@@ -111,12 +112,10 @@ app.get('/api/produtos', async (req, res) => {
     }
 
     const countQuery = `SELECT COUNT(*) FROM produtos${whereClauses.length > 0 ? ' WHERE ' + whereClauses.join(' AND ') : ''}`;
-    console.log('Count Query:', countQuery, 'Values:', values);
     const countResult = await pool.query(countQuery, values.slice(0, whereClauses.length));
 
     query += ' ORDER BY id DESC LIMIT $' + (values.length + 1) + ' OFFSET $' + (values.length + 2);
     values.push(limit, offset);
-    console.log('Main Query:', query, 'Values:', values);
 
     const { rows } = await pool.query(query, values);
 
