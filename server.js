@@ -1,5 +1,5 @@
 const API_BASE_URL = 'https://minha-api-produtos.onrender.com';
-const socket = io(API_BASE_URL);
+
 let currentPage = 1;
 
 document.addEventListener('DOMContentLoaded', () => {
