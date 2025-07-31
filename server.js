@@ -72,7 +72,7 @@ const server = require('http').createServer(app);
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
-    methods: ['GET', 'POST', 'DELETE']
+    methods: ['GET', 'POST', 'PUT', 'DELETE']
   }
 });
 
@@ -162,6 +162,57 @@ app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
   } catch (error) {
     console.error('Erro ao adicionar produto:', error);
     res.status(500).json({ status: 'error', message: 'Erro ao adicionar produto' });
+  }
+});
+
+// Rota para editar produto
+app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nome, descricao, preco, categoria, loja, link } = req.body;
+    if (!nome || !preco || !categoria || !loja || !link) {
+      return res.status(400).json({ status: 'error', message: 'Todos os campos são obrigatórios' });
+    }
+
+    const imageUrls = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const result = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream((error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          });
+          uploadStream.end(file.buffer);
+        });
+        imageUrls.push(result.secure_url);
+      }
+    }
+
+    const query = `
+      UPDATE produtos
+      SET nome = $1, descricao = $2, preco = $3, imagens = $4, categoria = $5, loja = $6, link = $7
+      WHERE id = $8
+      RETURNING *`;
+    const values = [
+      nome,
+      descricao,
+      parseFloat(preco),
+      imageUrls.length > 0 ? imageUrls : (await pool.query('SELECT imagens FROM produtos WHERE id = $1', [id])).rows[0].imagens,
+      categoria,
+      loja,
+      link,
+      id
+    ];
+    const { rows } = await pool.query(query, values);
+    if (rows.length === 0) {
+      return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
+    }
+
+    io.emit('produtoAtualizado', rows[0]);
+    res.json({ status: 'success', data: rows[0], message: 'Produto atualizado com sucesso' });
+  } catch (error) {
+    console.error('Erro ao atualizar produto:', error);
+    res.status(500).json({ status: 'error', message: 'Erro ao atualizar produto' });
   }
 });
 
