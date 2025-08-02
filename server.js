@@ -236,7 +236,7 @@ app.post('/api/produtos', authenticateToken, upload.array('imagens', 5), async (
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *`;
     const values = [nome, descricao, parseFloat(preco), imageUrls, categoria, loja, link];
- macular const { rows } = await pool.query(query, values);
+    const { rows } = await pool.query(query, values);
 
     io.emit('novoProduto', rows[0]);
     res.json({ status: 'success', data: rows[0], message: 'Produto adicionado com sucesso' });
