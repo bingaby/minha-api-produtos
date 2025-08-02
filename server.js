@@ -1,30 +1,43 @@
-// POST novo produto
-app.post('/api/produtos', async (req, res) => {
-  const { nome, descricao, preco, imagens, categoria, loja, link } = req.body;
-  try {
-    const result = await pool.query(
-      'INSERT INTO produtos (nome, descricao, preco, imagens, categoria, loja, link) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [nome, descricao, preco, imagens, categoria, loja, link]
-    );
-    io.emit('novoProduto');
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao adicionar produto' });
-  }
+// server.js
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+
+// Cria app Express
+const app = express();
+
+// Cria servidor HTTP usando o app Express
+const server = http.createServer(app);
+
+// Inicializa Socket.IO no servidor HTTP
+const io = new Server(server);
+
+// Rota básica para teste
+app.get('/', (req, res) => {
+  res.send('Servidor rodando com Express e Socket.IO!');
 });
 
-// PUT atualizar produto
-app.put('/api/produtos/:id', async (req, res) => {
-  const { id } = req.params;
-  const { nome, descricao, preco, imagens, categoria, loja, link } = req.body;
-  try {
-    const result = await pool.query(
-      'UPDATE produtos SET nome=$1, descricao=$2, preco=$3, imagens=$4, categoria=$5, loja=$6, link=$7 WHERE id=$8 RETURNING *',
-      [nome, descricao, preco, imagens, categoria, loja, link, id]
-    );
-    io.emit('produtoAtualizado');
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao atualizar produto' });
-  }
+// Evento de conexão Socket.IO
+io.on('connection', (socket) => {
+  console.log('Cliente conectado:', socket.id);
+
+  // Exemplo: ouvir mensagem do cliente
+  socket.on('mensagem', (msg) => {
+    console.log('Mensagem recebida do cliente:', msg);
+    // Enviar resposta para cliente
+    socket.emit('resposta', `Recebido: ${msg}`);
+  });
+
+  // Evento desconectar
+  socket.on('disconnect', () => {
+    console.log('Cliente desconectado:', socket.id);
+  });
+});
+
+// Porta do servidor
+const PORT = process.env.PORT || 3000;
+
+// Inicia servidor
+server.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
