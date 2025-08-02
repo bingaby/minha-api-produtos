@@ -4,8 +4,6 @@ const { Pool } = require('pg');
 const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const { Server } = require('socket.io');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
 require('dotenv').config();
 
 const app = express();
@@ -34,7 +32,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Criar tabelas se não existirem
+// Criar tabela produtos se não existir
 pool.connect((err) => {
   if (err) {
     console.error('Erro ao conectar ao PostgreSQL:', err);
@@ -42,12 +40,6 @@ pool.connect((err) => {
   }
   console.log('Conectado ao PostgreSQL');
   pool.query(`
-    CREATE TABLE IF NOT EXISTS usuarios (
-      id SERIAL PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      senha TEXT NOT NULL,
-      is_admin BOOLEAN DEFAULT FALSE
-    );
     CREATE TABLE IF NOT EXISTS produtos (
       id SERIAL PRIMARY KEY,
       nome TEXT NOT NULL,
@@ -60,10 +52,10 @@ pool.connect((err) => {
     );
   `, (err) => {
     if (err) {
-      console.error('Erro ao criar tabelas:', err);
+      console.error('Erro ao criar tabela produtos:', err);
       process.exit(1);
     }
-    console.log('Tabelas criadas ou verificadas');
+    console.log('Tabela produtos criada ou verificada');
   });
 });
 
@@ -88,80 +80,6 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('Cliente desconectado:', socket.id);
   });
-});
-
-// Middleware para autenticação JWT
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) {
-    return res.status(401).json({ status: 'error', message: 'Token não fornecido' });
-  }
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ status: 'error', message: 'Token inválido' });
-    }
-    if (!user.is_admin) {
-      return res.status(403).json({ status: 'error', message: 'Acesso negado: apenas administradores' });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-// Rota para registrar usuário (apenas para criar admin inicial)
-app.post('/api/register', async (req, res) => {
-  try {
-    const { email, senha } = req.body;
-    if (!email || !senha) {
-      return res.status(400).json({ status: 'error', message: 'Email e senha são obrigatórios' });
-    }
-    const hashedPassword = await bcrypt.hash(senha, 10);
-    const query = 'INSERT INTO usuarios (email, senha, is_admin) VALUES ($1, $2, $3) RETURNING id, email, is_admin';
-    const values = [email, hashedPassword, true];
-    const { rows } = await pool.query(query, values);
-    res.json({ status: 'success', message: 'Usuário registrado com sucesso' });
-  } catch (error) {
-    console.error('Erro ao registrar usuário:', error);
-    res.status(500).json({ status: 'error', message: 'Erro ao registrar usuário' });
-  }
-});
-
-// Rota para login
-app.post('/api/login', async (req, res) => {
-  try {
-    const { email, senha } = req.body;
-    const query = 'SELECT * FROM usuarios WHERE email = $1';
-    const { rows } = await pool.query(query, [email]);
-    if (rows.length === 0) {
-      return res.status(401).json({ status: 'error', message: 'Credenciais inválidas' });
-    }
-    const user = rows[0];
-    const isMatch = await bcrypt.compare(senha, user.senha);
-    if (!isMatch) {
-      return res.status(401).json({ status: 'error', message: 'Credenciais inválidas' });
-    }
-    const token = jwt.sign({ id: user.id, is_admin: user.is_admin }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.json({ status: 'success', token, is_admin: user.is_admin });
-  } catch (error) {
-    console.error('Erro ao fazer login:', error);
-    res.status(500).json({ status: 'error', message: 'Erro ao fazer login' });
-  }
-});
-
-// Rota para verificar token
-app.get('/api/verify-token', authenticateToken, async (req, res) => {
-  try {
-    const query = 'SELECT id, email, is_admin FROM usuarios WHERE id = $1';
-    const { rows } = await pool.query(query, [req.user.id]);
-    if (rows.length === 0) {
-      return res.status(404).json({ status: 'error', message: 'Usuário não encontrado' });
-    }
-    res.json({ status: 'success', is_admin: rows[0].is_admin });
-  } catch (error) {
-    console.error('Erro ao verificar token:', error);
-    res.status(500).json({ status: 'error', message: 'Erro ao verificar token' });
-  }
 });
 
 // Rota para buscar produtos
@@ -212,7 +130,7 @@ app.get('/api/produtos', async (req, res) => {
 });
 
 // Rota para adicionar produto
-app.post('/api/produtos', authenticateToken, upload.array('imagens', 5), async (req, res) => {
+app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
   try {
     const { nome, descricao, preco, categoria, loja, link } = req.body;
     if (!nome || !preco || !categoria || !loja || !link || !req.files || req.files.length === 0) {
@@ -247,7 +165,7 @@ app.post('/api/produtos', authenticateToken, upload.array('imagens', 5), async (
 });
 
 // Rota para editar produto
-app.put('/api/produtos/:id', authenticateToken, upload.array('imagens', 5), async (req, res) => {
+app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
   try {
     const { id } = req.params;
     const { nome, descricao, preco, categoria, loja, link } = req.body;
@@ -298,7 +216,7 @@ app.put('/api/produtos/:id', authenticateToken, upload.array('imagens', 5), asyn
 });
 
 // Rota para excluir produto
-app.delete('/api/produtos/:id', authenticateToken, async (req, res) => {
+app.delete('/api/produtos/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const query = 'DELETE FROM produtos WHERE id = $1 RETURNING *';
