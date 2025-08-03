@@ -39,13 +39,16 @@ cloudinary.config({
 // Configuração do Multer para upload de imagens
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Configuração do PostgreSQL
+// Configuração do PostgreSQL com SSL
 const pool = new Pool({
   user: process.env.PGUSER,
   host: process.env.PGHOST,
   database: process.env.PGDATABASE,
   password: process.env.PGPASSWORD,
-  port: process.env.PGPORT
+  port: process.env.PGPORT,
+  ssl: {
+    rejectUnauthorized: false // Permite conexões SSL sem verificação estrita do certificado
+  }
 });
 
 // Criação da tabela produtos, se não existir
@@ -251,7 +254,7 @@ app.delete('/api/produtos/:id', async (req, res) => {
 });
 
 // Iniciar o servidor
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000; // Corrigido para porta 3000
 server.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
