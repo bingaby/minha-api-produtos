@@ -1,311 +1,184 @@
 const express = require('express');
-const cors = require('cors');
 const { Pool } = require('pg');
-const multer = require('multer');
+const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
-const { Server } = require('socket.io');
 require('dotenv').config();
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: 'https://www.centrodecompra.com.br',
+        methods: ['GET', 'POST', 'PUT', 'DELETE'],
+        credentials: true
+    }
+});
 
-// Lista de categorias e lojas permitidas (alinhada com o frontend)
-const CATEGORIAS_PERMITIDAS = [
-    'eletronicos', 'moda', 'fitness', 'casa', 'beleza', 'esportes', 'livros',
-    'infantil', 'Celulares', 'Eletrodomésticos', 'pet', 'jardinagem', 'automotivo',
-    'gastronomia', 'games'
-];
-const LOJAS_PERMITIDAS = ['amazon', 'magalu', 'shein', 'shopee', 'mercadolivre', 'alibaba'];
-
-// Configuração do CORS
-const allowedOrigins = [
-    'http://localhost:3000',
-    'https://www.centrodecompra.com.br',
-    'https://minha-api-produtos.onrender.com',
-    // Adicione o domínio do frontend hospedado no Render, se diferente
-];
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
+    origin: ['https://www.centrodecompra.com.br', 'https://centrodecompra.com.br'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
 }));
 app.use(express.json());
 
-// Middleware de autenticação básica
-const authenticate = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'seu_token_secreto';
-    if (!authHeader || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
-        return res.status(401).json({ status: 'error', message: 'Autenticação necessária' });
-    }
-    next();
-};
-
-// Configuração do banco de dados
+// Configuração do PostgreSQL
 const pool = new Pool({
-    user: 'centrodecompra_db_user',
-    host: 'dpg-d25392idbo4c73a974pg-a.oregon-postgres.render.com',
-    database: 'centrodecompra_db',
-    password: 'cIqUg4jtqXIxlDmyWMruasKU5OLxbrcd',
+    user: process.env.PGUSER,
+    host: process.env.PGHOST,
+    database: process.env.PGDATABASE,
+    password: process.env.PGPASSWORD,
     port: 5432,
-    ssl: { rejectUnauthorized: false },
-});
-
-// Criar tabela produtos se não existir
-pool.connect((err) => {
-    if (err) {
-        console.error('Erro ao conectar ao PostgreSQL:', err);
-        process.exit(1);
-    }
-    console.log('Conectado ao PostgreSQL');
-    pool.query(`
-        CREATE TABLE IF NOT EXISTS produtos (
-            id SERIAL PRIMARY KEY,
-            nome TEXT NOT NULL,
-            descricao TEXT,
-            preco NUMERIC NOT NULL,
-            imagens TEXT[] NOT NULL,
-            categoria TEXT NOT NULL,
-            loja TEXT NOT NULL,
-            link TEXT NOT NULL
-        );
-    `, (err) => {
-        if (err) {
-            console.error('Erro ao criar tabela produtos:', err);
-            process.exit(1);
-        }
-        console.log('Tabela produtos criada ou verificada');
-    });
+    ssl: { rejectUnauthorized: false }
 });
 
 // Configuração do Cloudinary
 cloudinary.config({
-    cloud_name: 'damasyarq',
-    api_key: '156799321846881',
-    api_secret: 'bmqmdKA5PTbmkfWExr8SUr_FtTI',
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configuração do Socket.IO
-const server = require('http').createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: allowedOrigins,
-        methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    },
+// Rota de health check
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
 });
 
-io.on('connection', (socket) => {
-    console.log('Novo cliente conectado:', socket.id);
-    socket.on('disconnect', () => {
-        console.log('Cliente desconectado:', socket.id);
-    });
-});
-
-// Cache simples em memória
-const cache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
-
-// Rota para buscar produtos
+// Rota para obter todos os produtos (sem autenticação)
 app.get('/api/produtos', async (req, res) => {
+    const { page = 1, limit = 12, categoria, loja, busca } = req.query;
+    const offset = (page - 1) * limit;
+
     try {
-        const { categoria, loja, busca, page = 1, limit = 12 } = req.query;
-        const offset = (page - 1) * limit;
-        console.log('Parâmetros recebidos:', { categoria, loja, busca, page, limit });
-
-        // Validação de categoria e loja
-        if (categoria && categoria !== 'todas' && !CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
-        }
-        if (loja && loja !== 'todas' && !LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
-        }
-
-        // Chave para cache
-        const cacheKey = `${categoria || 'todas'}-${loja || 'todas'}-${busca || ''}-${page}-${limit}`;
-        if (cache.has(cacheKey)) {
-            const cached = cache.get(cacheKey);
-            if (Date.now() - cached.timestamp < CACHE_DURATION) {
-                console.log('Retornando dados do cache');
-                return res.json(cached.data);
-            }
-        }
-
-        let query = 'SELECT * FROM produtos';
+        let query = 'SELECT * FROM produtos WHERE 1=1';
         const values = [];
-        let whereClauses = [];
 
         if (categoria && categoria !== 'todas') {
-            whereClauses.push('categoria = $' + (values.length + 1));
             values.push(categoria);
+            query += ` AND categoria = $${values.length}`;
         }
+
         if (loja && loja !== 'todas') {
-            whereClauses.push('loja = $' + (values.length + 1));
             values.push(loja);
+            query += ` AND loja = $${values.length}`;
         }
+
         if (busca) {
-            whereClauses.push('nome ILIKE $' + (values.length + 1));
             values.push(`%${busca}%`);
+            query += ` AND (nome ILIKE $${values.length} OR descricao ILIKE $${values.length})`;
         }
 
-        if (whereClauses.length > 0) {
-            query += ' WHERE ' + whereClauses.join(' AND ');
-        }
-
-        const countQuery = `SELECT COUNT(*) FROM produtos${whereClauses.length > 0 ? ' WHERE ' + whereClauses.join(' AND ') : ''}`;
-        const countResult = await pool.query(countQuery, values.slice(0, whereClauses.length));
-
-        query += ' ORDER BY id DESC LIMIT $' + (values.length + 1) + ' OFFSET $' + (values.length + 2);
+        query += ` ORDER BY id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
         values.push(limit, offset);
 
-        const { rows } = await pool.query(query, values);
+        const result = await pool.query(query, values);
+        const totalResult = await pool.query('SELECT COUNT(*) FROM produtos WHERE 1=1' +
+            (categoria && categoria !== 'todas' ? ' AND categoria = $1' : '') +
+            (loja && loja !== 'todas' ? ` AND loja = $${categoria && categoria !== 'todas' ? 2 : 1}` : '') +
+            (busca ? ` AND (nome ILIKE $${(categoria && categoria !== 'todas') + (loja && loja !== 'todas') + 1} OR descricao ILIKE $${(categoria && categoria !== 'todas') + (loja && loja !== 'todas') + 1})` : ''),
+            values.slice(0, values.length - 2));
 
-        const responseData = {
-            status: 'success',
-            data: rows,
-            total: parseInt(countResult.rows[0].count),
-        };
+        const total = parseInt(totalResult.rows[0].count);
+        const response = { data: result.rows, total };
 
-        // Armazenar no cache
-        cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
-
-        res.json(responseData);
+        res.json(response);
     } catch (error) {
-        console.error('Erro ao buscar produtos:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao buscar produtos' });
+        console.error('Erro ao obter produtos:', error);
+        res.status(500).json({ error: 'Erro ao obter produtos' });
     }
 });
 
-// Rota para adicionar produto
-app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, res) => {
+// Rota para obter um produto específico (sem autenticação)
+app.get('/api/produtos/:id', async (req, res) => {
+    const { id } = req.params;
+
     try {
-        const { nome, descricao, preco, categoria, loja, link } = req.body;
-        if (!nome || !preco || !categoria || !loja || !link || !req.files || req.files.length === 0) {
-            return res.status(400).json({ status: 'error', message: 'Todos os campos são obrigatórios, incluindo pelo menos uma imagem' });
+        const result = await pool.query('SELECT * FROM produtos WHERE id = $1', [id]);
+        if (result.rows.length === 0) {
+            console.log(`[API] Produto ${id} não encontrado`);
+            return res.status(404).json({ error: 'Produto não encontrado' });
         }
+        const produto = result.rows[0];
+        console.log(`[API] Produto ${id} encontrado no banco`);
+        res.json(produto);
+    } catch (error) {
+        console.error(`[API] Erro ao obter produto ${id}:`, error);
+        res.status(500).json({ error: 'Erro ao obter produto' });
+    }
+});
 
-        if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
-        }
-        if (!LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
-        }
+// Rota para adicionar produto (sem autenticação)
+app.post('/api/produtos', async (req, res) => {
+    const { nome, preco, categoria, loja, link, imagens, descricao } = req.body;
 
-        const imageUrls = [];
-        for (const file of req.files) {
-            const result = await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
-                    (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
-                    }
-                );
-                uploadStream.end(file.buffer);
-            });
-            imageUrls.push(result.secure_url);
-        }
-
-        const query = `
-            INSERT INTO produtos (nome, descricao, preco, imagens, categoria, loja, link)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *`;
-        const values = [nome, descricao, parseFloat(preco), imageUrls, categoria, loja, link];
-        const { rows } = await pool.query(query, values);
-
-        io.emit('novoProduto', rows[0]);
-        cache.clear(); // Limpar cache ao adicionar produto
-        res.json({ status: 'success', data: rows[0], message: 'Produto adicionado com sucesso' });
+    try {
+        const result = await pool.query(
+            'INSERT INTO produtos (nome, preco, categoria, loja, link, imagens, descricao) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            [nome, preco, categoria, loja, link, imagens, descricao]
+        );
+        const produto = result.rows[0];
+        io.emit('novoProduto', produto);
+        res.status(201).json(produto);
     } catch (error) {
         console.error('Erro ao adicionar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao adicionar produto' });
+        res.status(500).json({ error: 'Erro ao adicionar produto' });
     }
 });
 
-// Rota para editar produto
-app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (req, res) => {
+// Rota para atualizar produto (sem autenticação)
+app.put('/api/produtos/:id', async (req, res) => {
+    const { id } = req.params;
+    const { nome, preco, categoria, loja, link, imagens, descricao } = req.body;
+
     try {
-        const { id } = req.params;
-        const { nome, descricao, preco, categoria, loja, link } = req.body;
-        if (!nome || !preco || !categoria || !loja || !link) {
-            return res.status(400).json({ status: 'error', message: 'Todos os campos são obrigatórios' });
+        const result = await pool.query(
+            'UPDATE produtos SET nome = $1, preco = $2, categoria = $3, loja = $4, link = $5, imagens = $6, descricao = $7 WHERE id = $8 RETURNING *',
+            [nome, preco, categoria, loja, link, imagens, descricao, id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Produto não encontrado' });
         }
-
-        if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
-        }
-        if (!LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
-        }
-
-        const imageUrls = [];
-        if (req.files && req.files.length > 0) {
-            for (const file of req.files) {
-                const result = await new Promise((resolve, reject) => {
-                    const uploadStream = cloudinary.uploader.upload_stream(
-                        { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
-                        (error, result) => {
-                            if (error) reject(error);
-                            else resolve(result);
-                        }
-                    );
-                    uploadStream.end(file.buffer);
-                });
-                imageUrls.push(result.secure_url);
-            }
-        }
-
-        const query = `
-            UPDATE produtos
-            SET nome = $1, descricao = $2, preco = $3, imagens = $4, categoria = $5, loja = $6, link = $7
-            WHERE id = $8
-            RETURNING *`;
-        const values = [
-            nome,
-            descricao,
-            parseFloat(preco),
-            imageUrls.length > 0 ? imageUrls : (await pool.query('SELECT imagens FROM produtos WHERE id = $1', [id])).rows[0].imagens,
-            categoria,
-            loja,
-            link,
-            id
-        ];
-        const { rows } = await pool.query(query, values);
-        if (rows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
-        }
-
-        io.emit('produtoAtualizado', rows[0]);
-        cache.clear(); // Limpar cache ao atualizar produto
-        res.json({ status: 'success', data: rows[0], message: 'Produto atualizado com sucesso' });
+        const produto = result.rows[0];
+        io.emit('produtoAtualizado', produto);
+        res.json(produto);
     } catch (error) {
         console.error('Erro ao atualizar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao atualizar produto' });
+        res.status(500).json({ error: 'Erro ao atualizar produto' });
     }
 });
 
-// Rota para excluir produto
-app.delete('/api/produtos/:id', authenticate, async (req, res) => {
+// Rota para excluir produto (sem autenticação)
+app.delete('/api/produtos/:id', async (req, res) => {
+    const { id } = req.params;
+
     try {
-        const { id } = req.params;
-        const query = 'DELETE FROM produtos WHERE id = $1 RETURNING *';
-        const { rows } = await pool.query(query, [id]);
-        if (rows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
+        const result = await pool.query('DELETE FROM produtos WHERE id = $1 RETURNING *', [id]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Produto não encontrado' });
         }
         io.emit('produtoExcluido', { id });
-        cache.clear(); // Limpar cache ao excluir produto
-        res.json({ status: 'success', message: 'Produto excluído com sucesso' });
+        res.json({ message: 'Produto excluído com sucesso' });
     } catch (error) {
         console.error('Erro ao excluir produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao excluir produto' });
+        res.status(500).json({ error: 'Erro ao excluir produto' });
     }
 });
 
-// Iniciar o servidor
+// Rota para upload de imagens (sem autenticação)
+app.post('/api/upload-imagem', async (req, res) => {
+    try {
+        const { image } = req.body;
+        const result = await cloudinary.uploader.upload(image, {
+            folder: 'centrodecompra'
+        });
+        res.json({ url: result.secure_url });
+    } catch (error) {
+        console.error('Erro ao fazer upload da imagem:', error);
+        res.status(500).json({ error: 'Erro ao fazer upload da imagem' });
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
