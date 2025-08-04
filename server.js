@@ -22,7 +22,7 @@ const allowedOrigins = [
     'http://localhost:3000',
     'https://www.centrodecompra.com.br',
     'https://minha-api-produtos.onrender.com',
-    // Adicione o domínio do frontend hospedado no Render, ex.: 'https://seu-frontend.onrender.com'
+    // Adicione o domínio do frontend hospedado no Render, se diferente
 ];
 app.use(cors({
     origin: (origin, callback) => {
@@ -47,11 +47,11 @@ const authenticate = (req, res, next) => {
 
 // Configuração do banco de dados
 const pool = new Pool({
-    user: process.env.PGUSER,
-    host: process.env.PGHOST,
-    database: process.env.PGDATABASE,
-    password: process.env.PGPASSWORD,
-    port: process.env.PGPORT || 5432,
+    user: 'centrodecompra_db_user',
+    host: 'dpg-d25392idbo4c73a974pg-a.oregon-postgres.render.com',
+    database: 'centrodecompra_db',
+    password: 'cIqUg4jtqXIxlDmyWMruasKU5OLxbrcd',
+    port: 5432,
     ssl: { rejectUnauthorized: false },
 });
 
@@ -84,9 +84,9 @@ pool.connect((err) => {
 
 // Configuração do Cloudinary
 cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
+    cloud_name: 'damasyarq',
+    api_key: '156799321846881',
+    api_secret: 'bmqmdKA5PTbmkfWExr8SUr_FtTI',
 });
 
 // Configuração do Socket.IO
@@ -198,7 +198,7 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
         for (const file of req.files) {
             const result = await new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
-                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] }, // Otimização de imagem
+                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
                     (error, result) => {
                         if (error) reject(error);
                         else resolve(result);
@@ -300,4 +300,13 @@ app.delete('/api/produtos/:id', authenticate, async (req, res) => {
         cache.clear(); // Limpar cache ao excluir produto
         res.json({ status: 'success', message: 'Produto excluído com sucesso' });
     } catch (error) {
-        console.error('Erro ao excluir produto
+        console.error('Erro ao excluir produto:', error);
+        res.status(500).json({ status: 'error', message: 'Erro ao excluir produto' });
+    }
+});
+
+// Iniciar o servidor
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+});
