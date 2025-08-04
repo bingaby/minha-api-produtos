@@ -9,7 +9,7 @@ require('dotenv').config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Lista de categorias e lojas permitidas (alinhada com o frontend)
+// Lista de categorias e lojas permitidas
 const CATEGORIAS_PERMITIDAS = [
     'eletronicos', 'moda', 'fitness', 'casa', 'beleza', 'esportes', 'livros',
     'infantil', 'Celulares', 'Eletrodomésticos', 'pet', 'jardinagem', 'automotivo',
@@ -38,7 +38,7 @@ app.use(express.json());
 // Middleware de autenticação básica
 const authenticate = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'seu_token_secreto'; // Defina no .env
+    const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'seu_token_secreto';
     if (!authHeader || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
         return res.status(401).json({ status: 'error', message: 'Autenticação necessária' });
     }
@@ -116,7 +116,6 @@ app.get('/api/produtos', async (req, res) => {
         const offset = (page - 1) * limit;
         console.log('Parâmetros recebidos:', { categoria, loja, busca, page, limit });
 
-        // Validação de categoria e loja
         if (categoria && categoria !== 'todas' && !CATEGORIAS_PERMITIDAS.includes(categoria)) {
             return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
         }
@@ -124,7 +123,6 @@ app.get('/api/produtos', async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'Loja inválida' });
         }
 
-        // Chave para cache
         const cacheKey = `${categoria || 'todas'}-${loja || 'todas'}-${busca || ''}-${page}-${limit}`;
         if (cache.has(cacheKey)) {
             const cached = cache.get(cacheKey);
@@ -169,9 +167,7 @@ app.get('/api/produtos', async (req, res) => {
             total: parseInt(countResult.rows[0].count),
         };
 
-        // Armazenar no cache
         cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
-
         res.json(responseData);
     } catch (error) {
         console.error('Erro ao buscar produtos:', error);
@@ -198,7 +194,7 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
         for (const file of req.files) {
             const result = await new Promise((resolve, reject) => {
                 const uploadStream = cloudinary.uploader.upload_stream(
-                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] }, // Otimização de imagem
+                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
                     (error, result) => {
                         if (error) reject(error);
                         else resolve(result);
@@ -217,93 +213,5 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
         const { rows } = await pool.query(query, values);
 
         io.emit('novoProduto', rows[0]);
-        res.json({ status: 'success', data: rows[0], message: 'Produto adicionado com sucesso' });
-    } catch (error) {
-        console.error('Erro ao adicionar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao adicionar produto' });
-    }
-});
-
-// Rota para editar produto
-app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { nome, descricao, preco, categoria, loja, link } = req.body;
-        if (!nome || !preco || !categoria || !loja || !link) {
-            return res.status(400).json({ status: 'error', message: 'Todos os campos são obrigatórios' });
-        }
-
-        if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
-        }
-        if (!LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
-        }
-
-        const imageUrls = [];
-        if (req.files && req.files.length > 0) {
-            for (const file of req.files) {
-                const result = await new Promise((resolve, reject) => {
-                    const uploadStream = cloudinary.uploader.upload_stream(
-                        { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
-                        (error, result) => {
-                            if (error) reject(error);
-                            else resolve(result);
-                        }
-                    );
-                    uploadStream.end(file.buffer);
-                });
-                imageUrls.push(result.secure_url);
-            }
-        }
-
-        const query = `
-            UPDATE produtos
-            SET nome = $1, descricao = $2, preco = $3, imagens = $4, categoria = $5, loja = $6, link = $7
-            WHERE id = $8
-            RETURNING *`;
-        const values = [
-            nome,
-            descricao,
-            parseFloat(preco),
-            imageUrls.length > 0 ? imageUrls : (await pool.query('SELECT imagens FROM produtos WHERE id = $1', [id])).rows[0].imagens,
-            categoria,
-            loja,
-            link,
-            id
-        ];
-        const { rows } = await pool.query(query, values);
-        if (rows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
-        }
-
-        io.emit('produtoAtualizado', rows[0]);
-        res.json({ status: 'success', data: rows[0], message: 'Produto atualizado com sucesso' });
-    } catch (error) {
-        console.error('Erro ao atualizar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao atualizar produto' });
-    }
-});
-
-// Rota para excluir produto
-app.delete('/api/produtos/:id', authenticate, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const query = 'DELETE FROM produtos WHERE id = $1 RETURNING *';
-        const { rows } = await pool.query(query, [id]);
-        if (rows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
-        }
-        io.emit('produtoExcluido', { id });
-        res.json({ status: 'success', message: 'Produto excluído com sucesso' });
-    } catch (error) {
-        console.error('Erro ao excluir produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao excluir produto' });
-    }
-});
-
-// Iniciar o servidor
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
-});
+        cache.clear();
+        res.json({ status: 'success', data: rows
