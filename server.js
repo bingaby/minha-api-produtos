@@ -48,9 +48,13 @@ const storage = new CloudinaryStorage({
   params: {
     folder: 'centrodecompra',
     allowed_formats: ['jpg', 'png', 'jpeg', 'gif'],
+    transformation: [{ width: 800, height: 600, crop: 'limit' }],
   },
 });
-const upload = multer({ storage }).array('imagens', 5); // Até 5 imagens por produto
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB por imagem
+}).array('imagens', 5); // Até 5 imagens por produto
 
 // Rota de health check
 app.get('/api/health', (req, res) => {
@@ -121,22 +125,20 @@ app.get('/api/produtos/:id', async (req, res) => {
 // Rota para adicionar produto
 app.post('/api/produtos', upload, async (req, res) => {
   const { nome, preco, categoria, loja, link, descricao } = req.body;
-  let imagens = [];
+  const imagens = req.files ? req.files.map(file => file.path) : [];
+
+  if (!nome || !preco || !categoria || !loja || !link) {
+    return res.status(400).json({ error: 'Campos obrigatórios faltando' });
+  }
 
   try {
-    // Processar imagens enviadas
-    if (req.files && req.files.length > 0) {
-      imagens = req.files.map(file => file.path); // URLs do Cloudinary
-    }
-
     const result = await pool.query(
       'INSERT INTO produtos (nome, preco, categoria, loja, link, imagens, descricao) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-      [nome, preco, categoria, loja, link, JSON.stringify(imagens), descricao]
+      [nome, parseFloat(preco), categoria, loja, link, JSON.stringify(imagens), descricao]
     );
-
     const produto = result.rows[0];
     io.emit('novoProduto', produto);
-    res.status(201).json(produto);
+    res.status(201).json({ message: 'Produto adicionado com sucesso', data: produto });
   } catch (error) {
     console.error('Erro ao adicionar produto:', error);
     res.status(500).json({ error: 'Erro ao adicionar produto' });
@@ -150,20 +152,22 @@ app.put('/api/produtos/:id', upload, async (req, res) => {
   let imagens = [];
 
   try {
-    // Manter imagens existentes, se fornecidas
+    // Combinar imagens existentes com novas
     if (imagensExistentes) {
       imagens = JSON.parse(imagensExistentes || '[]');
     }
-
-    // Adicionar novas imagens, se enviadas
     if (req.files && req.files.length > 0) {
       const novasImagens = req.files.map(file => file.path);
       imagens = [...imagens, ...novasImagens];
     }
 
+    if (!nome || !preco || !categoria || !loja || !link) {
+      return res.status(400).json({ error: 'Campos obrigatórios faltando' });
+    }
+
     const result = await pool.query(
       'UPDATE produtos SET nome = $1, preco = $2, categoria = $3, loja = $4, link = $5, imagens = $6, descricao = $7 WHERE id = $8 RETURNING *',
-      [nome, preco, categoria, loja, link, JSON.stringify(imagens), descricao, id]
+      [nome, parseFloat(preco), categoria, loja, link, JSON.stringify(imagens), descricao, id]
     );
 
     if (result.rows.length === 0) {
@@ -172,7 +176,7 @@ app.put('/api/produtos/:id', upload, async (req, res) => {
 
     const produto = result.rows[0];
     io.emit('produtoAtualizado', produto);
-    res.json(produto);
+    res.json({ message: 'Produto atualizado com sucesso', data: produto });
   } catch (error) {
     console.error('Erro ao atualizar produto:', error);
     res.status(500).json({ error: 'Erro ao atualizar produto' });
@@ -184,10 +188,21 @@ app.delete('/api/produtos/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    const result = await pool.query('DELETE FROM produtos WHERE id = $1 RETURNING *', [id]);
-    if (result.rows.length === 0) {
+    // Excluir imagens do Cloudinary
+    const result = await pool.query('SELECT imagens FROM produtos WHERE id = $1', [id]);
+    if (result.rows.length > 0) {
+      const imagens = JSON.parse(result.rows[0].imagens || '[]');
+      for (const url of imagens) {
+        const publicId = url.split('/').pop().split('.')[0];
+        await cloudinary.uploader.destroy(`centrodecompra/${publicId}`).catch(err => console.error('Erro ao excluir imagem:', err));
+      }
+    }
+
+    const deleteResult = await pool.query('DELETE FROM produtos WHERE id = $1 RETURNING *', [id]);
+    if (deleteResult.rows.length === 0) {
       return res.status(404).json({ error: 'Produto não encontrado' });
     }
+
     io.emit('produtoExcluido', { id });
     res.json({ message: 'Produto excluído com sucesso' });
   } catch (error) {
@@ -196,12 +211,12 @@ app.delete('/api/produtos/:id', async (req, res) => {
   }
 });
 
-// Rota para excluir imagem do Cloudinary
+// Rota para excluir imagem específica do Cloudinary
 app.delete('/api/imagem/:publicId', async (req, res) => {
   const { publicId } = req.params;
 
   try {
-    await cloudinary.uploader.destroy(publicId);
+    await cloudinary.uploader.destroy(`centrodecompra/${publicId}`);
     res.json({ message: 'Imagem excluída com sucesso' });
   } catch (error) {
     console.error('Erro ao excluir imagem:', error);
