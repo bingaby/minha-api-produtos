@@ -38,35 +38,38 @@ app.get('/api/produtos', async (req, res) => {
     const { page = 1, limit = 12, categoria, loja, busca } = req.query;
     const offset = (page - 1) * limit;try {
     let query = 'SELECT * FROM produtos WHERE 1=1';
-    const values = [];if (categoria && categoria !== 'todas') {
-    values.push(categoria);
-    query += ` AND categoria = $${values.length}`;
-}
+    const values = [];
 
-if (loja && loja !== 'todas') {
-    values.push(loja);
-    query += ` AND loja = $${values.length}`;
-}
+    if (categoria && categoria !== 'todas') {
+        values.push(categoria);
+        query += ` AND categoria = $${values.length}`;
+    }
 
-if (busca) {
-    values.push(`%${busca}%`);
-    query += ` AND (nome ILIKE $${values.length} OR descricao ILIKE $${values.length})`;
-}
+    if (loja && loja !== 'todas') {
+        values.push(loja);
+        query += ` AND loja = $${values.length}`;
+    }
 
-query += ` ORDER BY id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
-values.push(limit, offset);
+    if (busca) {
+        values.push(`%${busca}%`);
+        query += ` AND (nome ILIKE $${values.length} OR descricao ILIKE $${values.length})`;
+    }
 
-const result = await pool.query(query, values);
-const totalResult = await pool.query('SELECT COUNT(*) FROM produtos WHERE 1=1' +
-    (categoria && categoria !== 'todas' ? ' AND categoria = $1' : '') +
-    (loja && loja !== 'todas' ? ` AND loja = $${categoria && categoria !== 'todas' ? 2 : 1}` : '') +
-    (busca ? ` AND (nome ILIKE $${(categoria && categoria !== 'todas') + (loja && loja !== 'todas') + 1} OR descricao ILIKE $${(categoria && categoria !== 'todas') + (loja && loja !== 'todas') + 1})` : ''),
-    values.slice(0, values.length - 2));
+    query += ` ORDER BY id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    values.push(limit, offset);
 
-const total = parseInt(totalResult.rows[0].count);
-const response = { data: result.rows, total };
+    const result = await pool.query(query, values);
+    const totalResult = await pool.query('SELECT COUNT(*) FROM produtos WHERE 1=1' +
+        (categoria && categoria !== 'todas' ? ' AND categoria = $1' : '') +
+        (loja && loja !== 'todas' ? ` AND loja = $${categoria && categoria !== 'todas' ? 2 : 1}` : '') +
+        (busca ? ` AND (nome ILIKE $${(categoria && categoria !== 'todas') + (loja && loja !== 'todas') + 1} OR descricao ILIKE $${(categoria && categoria !== 'todas') + (loja && loja !== 'todas') + 1})` : ''),
+        values.slice(0, values.length - 2));
 
-res.json(response);} catch (error) {
+    const total = parseInt(totalResult.rows[0].count);
+    const response = { data: result.rows, total };
+
+    res.json(response);
+} catch (error) {
     console.error('Erro ao obter produtos:', error);
     res.status(500).json({ error: 'Erro ao obter produtos' });
 }});// Rota para obter um produto específico (sem autenticação)
@@ -74,14 +77,14 @@ app.get('/api/produtos/:id', async (req, res) => {
     const { id } = req.params;try {
     const result = await pool.query('SELECT * FROM produtos WHERE id = $1', [id]);
     if (result.rows.length === 0) {
-        console.log([API] Produto ${id} não encontrado);
+        console.log(`[API] Produto ${id} não encontrado`);
         return res.status(404).json({ error: 'Produto não encontrado' });
     }
     const produto = result.rows[0];
-    console.log([API] Produto ${id} encontrado no banco);
+    console.log(`[API] Produto ${id} encontrado no banco`);
     res.json(produto);
 } catch (error) {
-    console.error([API] Erro ao obter produto ${id}:, error);
+    console.error(`[API] Erro ao obter produto ${id}:`, error);
     res.status(500).json({ error: 'Erro ao obter produto' });
 }});// Rota para adicionar produto (sem autenticação)
 app.post('/api/produtos', async (req, res) => {
