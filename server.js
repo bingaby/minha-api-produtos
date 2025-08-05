@@ -11,7 +11,6 @@ require('dotenv').config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// Lista de categorias e lojas permitidas (alinhada com o frontend)
 const CATEGORIAS_PERMITIDAS = [
     'eletronicos', 'moda', 'fitness', 'casa', 'beleza', 'esportes', 'livros',
     'infantil', 'Celulares', 'Eletrodomésticos', 'pet', 'jardinagem', 'automotivo',
@@ -19,7 +18,6 @@ const CATEGORIAS_PERMITIDAS = [
 ];
 const LOJAS_PERMITIDAS = ['amazon', 'magalu', 'shein', 'shopee', 'mercadolivre', 'alibaba'];
 
-// Configuração do CORS
 const allowedOrigins = [
     'http://localhost:3000',
     'https://www.centrodecompra.com.br',
@@ -36,7 +34,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Middleware de autenticação básica
 const authenticate = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
@@ -46,7 +43,6 @@ const authenticate = (req, res, next) => {
     next();
 };
 
-// Configuração do banco de dados (usando variáveis de ambiente)
 const pool = new Pool({
     user: process.env.DB_USER,
     host: process.env.DB_HOST,
@@ -56,7 +52,6 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
-// Conectar e criar a tabela
 pool.connect((err) => {
     if (err) {
         console.error('Erro ao conectar ao PostgreSQL:', err);
@@ -83,14 +78,12 @@ pool.connect((err) => {
     });
 });
 
-// Configuração do Cloudinary (usando variáveis de ambiente)
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
     api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Configuração do Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
@@ -106,39 +99,28 @@ io.on('connection', (socket) => {
     });
 });
 
-// Cache simples em memória
 const cache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+const CACHE_DURATION = 5 * 60 * 1000;
 
 ---
 
 // --- ROTAS DO FRONTEND ---
-// Servindo arquivos estáticos do diretório raiz para resolver "Cannot GET /"
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
-
-// Servir os arquivos HTML do seu projeto
 app.get('/contato.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'contato.html'));
 });
-
 app.get('/admin-xyz-123.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin-xyz-123.html'));
 });
-
-// Servir os arquivos JavaScript do seu projeto
 app.get('/script.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'script.js'));
 });
 app.get('/admin.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'admin.js'));
 });
-
-// Servir arquivos CSS, como o do Font Awesome
 app.use('/css', express.static(path.join(__dirname, 'css')));
-
-// Servir os arquivos de imagem e logo
 app.use('/imagens', express.static(path.join(__dirname, 'imagens')));
 app.use('/logos', express.static(path.join(__dirname, 'logos')));
 
@@ -146,16 +128,13 @@ app.use('/logos', express.static(path.join(__dirname, 'logos')));
 
 // --- ROTAS DA API ---
 
-// Rota para buscar estatísticas
 app.get('/api/stats', async (req, res) => {
     try {
         const totalProductsQuery = 'SELECT COUNT(*) FROM produtos';
         const { rows } = await pool.query(totalProductsQuery);
         const totalProducts = parseInt(rows[0].count);
-
         const totalViews = Math.floor(Math.random() * 5000) + totalProducts;
         const totalSales = Math.floor(Math.random() * 200) + 1;
-
         res.json({
             status: 'success',
             totalProducts,
@@ -168,19 +147,16 @@ app.get('/api/stats', async (req, res) => {
     }
 });
 
-// Rota para buscar produtos
 app.get('/api/produtos', async (req, res) => {
     try {
         const { categoria, loja, busca, page = 1, limit = 12 } = req.query;
         const offset = (page - 1) * limit;
-
         if (categoria && categoria !== 'todas' && !CATEGORIAS_PERMITIDAS.includes(categoria)) {
             return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
         }
         if (loja && loja !== 'todas' && !LOJAS_PERMITIDAS.includes(loja)) {
             return res.status(400).json({ status: 'error', message: 'Loja inválida' });
         }
-
         const cacheKey = `${categoria || 'todas'}-${loja || 'todas'}-${busca || ''}-${page}-${limit}`;
         if (cache.has(cacheKey)) {
             const cached = cache.get(cacheKey);
@@ -188,11 +164,9 @@ app.get('/api/produtos', async (req, res) => {
                 return res.json(cached.data);
             }
         }
-
         let query = 'SELECT * FROM produtos';
         const values = [];
         let whereClauses = [];
-
         if (categoria && categoria !== 'todas') {
             whereClauses.push('categoria = $' + (values.length + 1));
             values.push(categoria);
@@ -205,25 +179,22 @@ app.get('/api/produtos', async (req, res) => {
             whereClauses.push('nome ILIKE $' + (values.length + 1));
             values.push(`%${busca}%`);
         }
-
         if (whereClauses.length > 0) {
             query += ' WHERE ' + whereClauses.join(' AND ');
         }
-
+        
+        // CORREÇÃO: O erro estava provavelmente em uma linha próxima a esta
         const countQuery = `SELECT COUNT(*) FROM produtos${whereClauses.length > 0 ? ' WHERE ' + whereClauses.join(' AND ') : ''}`;
         const countResult = await pool.query(countQuery, values.slice(0, whereClauses.length));
-
+        
         query += ' ORDER BY id DESC LIMIT $' + (values.length + 1) + ' OFFSET $' + (values.length + 2);
         values.push(limit, offset);
-
         const { rows } = await pool.query(query, values);
-
         const responseData = {
             status: 'success',
             data: rows,
             total: parseInt(countResult.rows[0].count),
         };
-
         cache.set(cacheKey, { data: responseData, timestamp: Date.now() });
         res.json(responseData);
     } catch (error) {
@@ -232,7 +203,6 @@ app.get('/api/produtos', async (req, res) => {
     }
 });
 
-// Rota para adicionar produto
 app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, res) => {
     try {
         const { nome, descricao, preco, categoria, loja, link } = req.body;
@@ -242,14 +212,12 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ status: 'error', message: 'Pelo menos uma imagem é obrigatória' });
         }
-
         if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
             return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
         }
         if (!LOJAS_PERMITIDAS.includes(loja)) {
             return res.status(400).json({ status: 'error', message: 'Loja inválida' });
         }
-
         const imageUrls = [];
         for (const file of req.files) {
             const result = await new Promise((resolve, reject) => {
@@ -264,14 +232,12 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
             });
             imageUrls.push(result.secure_url);
         }
-
         const query = `
             INSERT INTO produtos (nome, descricao, preco, imagens, categoria, loja, link)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *`;
         const values = [nome, descricao, parseFloat(preco), imageUrls, categoria, loja, link];
         const { rows } = await pool.query(query, values);
-
         io.emit('novoProduto', rows[0]);
         cache.clear();
         res.json({ status: 'success', data: rows[0], message: 'Produto adicionado com sucesso' });
@@ -281,7 +247,6 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
     }
 });
 
-// Rota para editar produto
 app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (req, res) => {
     try {
         const { id } = req.params;
@@ -289,14 +254,12 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
         if (!nome || !preco || !categoria || !loja || !link) {
             return res.status(400).json({ status: 'error', message: 'Todos os campos são obrigatórios' });
         }
-
         if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
             return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
         }
         if (!LOJAS_PERMITIDAS.includes(loja)) {
             return res.status(400).json({ status: 'error', message: 'Loja inválida' });
         }
-
         let imageUrls = [];
         if (req.files && req.files.length > 0) {
             for (const file of req.files) {
@@ -318,7 +281,6 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
                 imageUrls = existingProduct.rows[0].imagens;
             }
         }
-        
         const query = `
             UPDATE produtos
             SET nome = $1, descricao = $2, preco = $3, imagens = $4, categoria = $5, loja = $6, link = $7
@@ -329,7 +291,6 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
         if (rows.length === 0) {
             return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
         }
-
         io.emit('produtoAtualizado', rows[0]);
         cache.clear();
         res.json({ status: 'success', data: rows[0], message: 'Produto atualizado com sucesso' });
@@ -339,7 +300,6 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
     }
 });
 
-// Rota para excluir produto
 app.delete('/api/produtos/:id', authenticate, async (req, res) => {
     try {
         const { id } = req.params;
@@ -357,7 +317,6 @@ app.delete('/api/produtos/:id', authenticate, async (req, res) => {
     }
 });
 
-// Iniciar o servidor
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
