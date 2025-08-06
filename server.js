@@ -20,14 +20,16 @@ const io = new Server(server, {
   },
 });
 
+// Configurar CORS para o Express
 app.use(cors({
   origin: ['https://www.centrodecompra.com.br', 'https://centrodecompra.com.br'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true,
 }));
+
 app.use(express.json());
 
-// Servir arquivos estáticos
+// Servir arquivos estáticos (exemplo: favicon, imagens estáticas)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Configuração do PostgreSQL
@@ -47,9 +49,9 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Configuração do Multer com Cloudinary
+// Configuração do Multer com CloudinaryStorage
 const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
+  cloudinary,
   params: {
     folder: 'centrodecompra',
     allowed_formats: ['jpg', 'png', 'jpeg'],
@@ -58,10 +60,10 @@ const storage = new CloudinaryStorage({
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB por imagem
+  limits: { fileSize: 5 * 1024 * 1024 }, // Limite 5MB
 });
 
-// Middleware de autenticação
+// Middleware de autenticação JWT
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -79,7 +81,7 @@ app.get('/favicon.ico', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
 });
 
-// Rota de health check
+// Health check da API + banco
 app.get('/api/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
@@ -89,7 +91,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Rota para estatísticas
+// Estatísticas (protegida)
 app.get('/api/stats', authenticateToken, async (req, res) => {
   try {
     const totalProducts = await pool.query('SELECT COUNT(*) FROM produtos');
@@ -109,7 +111,7 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
   }
 });
 
-// Rota para obter todos os produtos
+// Listar produtos com paginação e busca (protegida)
 app.get('/api/produtos', authenticateToken, async (req, res) => {
   const { page = 1, limit = 10, search } = req.query;
   const offset = (page - 1) * limit;
@@ -117,20 +119,27 @@ app.get('/api/produtos', authenticateToken, async (req, res) => {
   try {
     let query = 'SELECT * FROM produtos WHERE 1=1';
     const values = [];
+    let idx = 1;
 
     if (search) {
+      query += ` AND (nome ILIKE $${idx} OR descricao ILIKE $${idx})`;
       values.push(`%${search}%`);
-      query += ` AND (nome ILIKE $1 OR descricao ILIKE $1)`;
+      idx++;
     }
 
-    query += ` ORDER BY id DESC LIMIT $2 OFFSET $3`;
+    query += ` ORDER BY id DESC LIMIT $${idx} OFFSET $${idx + 1}`;
     values.push(limit, offset);
 
     const result = await pool.query(query, values);
-    const totalResult = await pool.query(
-      'SELECT COUNT(*) FROM produtos WHERE 1=1' + (search ? ' AND (nome ILIKE $1 OR descricao ILIKE $1)' : ''),
-      search ? [search] : []
-    );
+
+    // Contar total com mesma condição
+    let countQuery = 'SELECT COUNT(*) FROM produtos WHERE 1=1';
+    const countValues = [];
+    if (search) {
+      countQuery += ' AND (nome ILIKE $1 OR descricao ILIKE $1)';
+      countValues.push(`%${search}%`);
+    }
+    const totalResult = await pool.query(countQuery, countValues);
 
     const total = parseInt(totalResult.rows[0].count);
     res.json({ success: true, data: result.rows, total });
@@ -140,11 +149,84 @@ app.get('/api/produtos', authenticateToken, async (req, res) => {
   }
 });
 
-// Rota para obter um produto específico
+// Listar produtos pública (sem autenticação)
+app.get('/api/produtos-public', async (req, res) => {
+  const { page = 1, limit = 10, search } = req.query;
+  const offset = (page - 1) * limit;
+
+  try {
+    let query = 'SELECT * FROM produtos WHERE 1=1';
+    const values = [];
+    let idx = 1;
+
+    if (search) {
+      query += ` AND (nome ILIKE $${idx} OR descricao ILIKE $${idx})`;
+      values.push(`%${search}%`);
+      idx++;
+    }
+
+    query += ` ORDER BY id DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+    values.push(limit, offset);
+
+    const result = await pool.query(query, values);
+
+    // Contar total com mesma condição
+    let countQuery = 'SELECT COUNT(*) FROM produtos WHERE 1=1';
+    const countValues = [];
+    if (search) {
+      countQuery += ' AND (nome ILIKE $1 OR descricao ILIKE $1)';
+      countValues.push(`%${search}%`);
+    }
+    const totalResult = await pool.query(countQuery, countValues);
+
+    const total = parseInt(totalResult.rows[0].count);
+    res.json({ success: true, data: result.rows, total });
+  } catch (error) {
+    console.error('Erro ao obter produtos (público):', error);
+    res.status(500).json({ success: false, error: 'Erro ao obter produtos' });
+  }
+});
+
+// Obter produto por ID (protegida)
 app.get('/api/produtos/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
   try {
     const result = await pool.query('SELECT * FROM produtos WHERE id = $1', [id]);
     if (result.rows.length === 0) {
-      return res.status(
+      return res.status(404).json({ success: false, message: 'Produto não encontrado' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error('Erro ao obter produto:', error);
+    res.status(500).json({ success: false, error: 'Erro ao obter produto' });
+  }
+});
+
+// Upload de imagem (exemplo, rota protegida)
+app.post('/api/upload', authenticateToken, upload.single('imagem'), (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'Nenhuma imagem enviada' });
+  // URL da imagem no Cloudinary
+  res.json({ success: true, url: req.file.path });
+});
+
+// WebSocket básico para notificações (exemplo)
+io.on('connection', (socket) => {
+  console.log(`Usuário conectado: ${socket.id}`);
+
+  socket.on('disconnect', () => {
+    console.log(`Usuário desconectado: ${socket.id}`);
+  });
+
+  // Exemplo de evento customizado
+  socket.on('nova-oferta', (data) => {
+    // Broadcast para todos menos para quem enviou
+    socket.broadcast.emit('nova-oferta', data);
+  });
+});
+
+// Inicialização do servidor
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+});
