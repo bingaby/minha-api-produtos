@@ -29,7 +29,7 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            callback(new Error('Not allowed by CORS'));
+            callback(new Error('Não permitido pelo CORS'));
         }
     },
 }));
@@ -47,18 +47,18 @@ const authenticate = (req, res, next) => {
 
 // Configuração do banco de dados
 const pool = new Pool({
-    user: 'centrodecompra_db_user',
-    host: 'dpg-d25392idbo4c73a974pg-a.oregon-postgres.render.com',
-    database: 'centrodecompra_db',
-    password: 'cIqUg4jtqXIxlDmyWMruasKU5OLxbrcd',
-    port: 5432,
+    user: process.env.DB_USER,
+    host: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    password: process.env.DB_PASSWORD,
+    port: process.env.DB_PORT,
     ssl: { rejectUnauthorized: false },
 });
 
 // Criar tabela produtos se não existir
 pool.connect((err) => {
     if (err) {
-        console.error('Erro ao conectar ao PostgreSQL:', err);
+        console.error('Erro ao conectar ao PostgreSQL:', err.stack);
         process.exit(1);
     }
     console.log('Conectado ao PostgreSQL');
@@ -75,7 +75,7 @@ pool.connect((err) => {
         );
     `, (err) => {
         if (err) {
-            console.error('Erro ao criar tabela produtos:', err);
+            console.error('Erro ao criar tabela produtos:', err.stack);
             process.exit(1);
         }
         console.log('Tabela produtos criada ou verificada');
@@ -84,9 +84,9 @@ pool.connect((err) => {
 
 // Configuração do Cloudinary
 cloudinary.config({
-    cloud_name: 'damasyarq',
-    api_key: '156799321846881',
-    api_secret: 'bmqmdKA5PTbmkfWExr8SUr_FtTI',
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 // Configuração do Socket.IO
@@ -108,6 +108,11 @@ io.on('connection', (socket) => {
 // Cache simples em memória
 const cache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+
+// Endpoint de health check
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'success', message: 'API está funcionando' });
+});
 
 // Rota para buscar produtos
 app.get('/api/produtos', async (req, res) => {
@@ -174,7 +179,7 @@ app.get('/api/produtos', async (req, res) => {
 
         res.json(responseData);
     } catch (error) {
-        console.error('Erro ao buscar produtos:', error);
+        console.error('Erro ao buscar produtos:', error.stack);
         res.status(500).json({ status: 'error', message: 'Erro ao buscar produtos' });
     }
 });
@@ -220,7 +225,7 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
         cache.clear(); // Limpar cache ao adicionar produto
         res.json({ status: 'success', data: rows[0], message: 'Produto adicionado com sucesso' });
     } catch (error) {
-        console.error('Erro ao adicionar produto:', error);
+        console.error('Erro ao adicionar produto:', error.stack);
         res.status(500).json({ status: 'error', message: 'Erro ao adicionar produto' });
     }
 });
@@ -282,7 +287,7 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
         cache.clear(); // Limpar cache ao atualizar produto
         res.json({ status: 'success', data: rows[0], message: 'Produto atualizado com sucesso' });
     } catch (error) {
-        console.error('Erro ao atualizar produto:', error);
+        console.error('Erro ao atualizar produto:', error.stack);
         res.status(500).json({ status: 'error', message: 'Erro ao atualizar produto' });
     }
 });
@@ -300,7 +305,7 @@ app.delete('/api/produtos/:id', authenticate, async (req, res) => {
         cache.clear(); // Limpar cache ao excluir produto
         res.json({ status: 'success', message: 'Produto excluído com sucesso' });
     } catch (error) {
-        console.error('Erro ao excluir produto:', error);
+        console.error('Erro ao excluir produto:', error.stack);
         res.status(500).json({ status: 'error', message: 'Erro ao excluir produto' });
     }
 });
