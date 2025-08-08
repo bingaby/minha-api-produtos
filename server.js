@@ -62,32 +62,45 @@ pool.connect((err) => {
         process.exit(1);
     }
     console.log('Conectado ao PostgreSQL');
+
+    // Ativar extensão pg_trgm
     pool.query(`
-        DROP TABLE IF EXISTS produtos CASCADE;
-
-        CREATE TABLE produtos (
-            id SERIAL PRIMARY KEY,
-            nome VARCHAR(255) NOT NULL,
-            preco DECIMAL(10, 2) NOT NULL,
-            categoria VARCHAR(50) NOT NULL,
-            loja VARCHAR(50) NOT NULL,
-            link TEXT NOT NULL,
-            imagens JSONB NOT NULL DEFAULT '[]'::jsonb,
-            descricao TEXT,
-            views INTEGER DEFAULT 0,
-            sales INTEGER DEFAULT 0
-        );
-
-        -- Criação de índices para otimizar consultas
-        CREATE INDEX idx_produtos_categoria ON produtos (categoria);
-        CREATE INDEX idx_produtos_loja ON produtos (loja);
-        CREATE INDEX idx_produtos_nome ON produtos USING GIN (nome gin_trgm_ops);
+        CREATE EXTENSION IF NOT EXISTS pg_trgm;
     `, (err) => {
         if (err) {
-            console.error('Erro ao criar tabela produtos ou índices:', err.stack);
-            process.exit(1);
+            console.warn('Aviso: Não foi possível ativar a extensão pg_trgm. O índice de busca textual não será criado:', err.stack);
+        } else {
+            console.log('Extensão pg_trgm ativada ou já existente');
         }
-        console.log('Tabela produtos e índices criados ou verificados');
+
+        // Criar tabela e índices
+        pool.query(`
+            DROP TABLE IF EXISTS produtos CASCADE;
+
+            CREATE TABLE produtos (
+                id SERIAL PRIMARY KEY,
+                nome VARCHAR(255) NOT NULL,
+                preco DECIMAL(10, 2) NOT NULL,
+                categoria VARCHAR(50) NOT NULL,
+                loja VARCHAR(50) NOT NULL,
+                link TEXT NOT NULL,
+                imagens JSONB NOT NULL DEFAULT '[]'::jsonb,
+                descricao TEXT,
+                views INTEGER DEFAULT 0,
+                sales INTEGER DEFAULT 0
+            );
+
+            -- Criação de índices para otimizar consultas
+            CREATE INDEX idx_produtos_categoria ON produtos (categoria);
+            CREATE INDEX idx_produtos_loja ON produtos (loja);
+            ${err ? '' : 'CREATE INDEX idx_produtos_nome ON produtos USING GIN (nome gin_trgm_ops);'}
+        `, (err) => {
+            if (err) {
+                console.error('Erro ao criar tabela produtos ou índices:', err.stack);
+                process.exit(1);
+            }
+            console.log('Tabela produtos e índices criados ou verificados');
+        });
     });
 });
 
