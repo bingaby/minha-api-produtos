@@ -38,7 +38,7 @@ app.use(express.json());
 // Middleware de autenticação básica
 const authenticate = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'seu_token_secreto';
+    const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '098457098457';
     if (!authHeader || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
         return res.status(401).json({ status: 'error', message: 'Autenticação necessária' });
     }
