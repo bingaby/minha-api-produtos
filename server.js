@@ -55,7 +55,7 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false },
 });
 
-// Criar tabela produtos se não existir
+// Criar tabela produtos e índices
 pool.connect((err) => {
     if (err) {
         console.error('Erro ao conectar ao PostgreSQL:', err.stack);
@@ -63,22 +63,31 @@ pool.connect((err) => {
     }
     console.log('Conectado ao PostgreSQL');
     pool.query(`
-        CREATE TABLE IF NOT EXISTS produtos (
+        DROP TABLE IF EXISTS produtos CASCADE;
+
+        CREATE TABLE produtos (
             id SERIAL PRIMARY KEY,
-            nome TEXT NOT NULL,
+            nome VARCHAR(255) NOT NULL,
+            preco DECIMAL(10, 2) NOT NULL,
+            categoria VARCHAR(50) NOT NULL,
+            loja VARCHAR(50) NOT NULL,
+            link TEXT NOT NULL,
+            imagens JSONB NOT NULL DEFAULT '[]'::jsonb,
             descricao TEXT,
-            preco NUMERIC NOT NULL,
-            imagens TEXT[] NOT NULL,
-            categoria TEXT NOT NULL,
-            loja TEXT NOT NULL,
-            link TEXT NOT NULL
+            views INTEGER DEFAULT 0,
+            sales INTEGER DEFAULT 0
         );
+
+        -- Criação de índices para otimizar consultas
+        CREATE INDEX idx_produtos_categoria ON produtos (categoria);
+        CREATE INDEX idx_produtos_loja ON produtos (loja);
+        CREATE INDEX idx_produtos_nome ON produtos USING GIN (nome gin_trgm_ops);
     `, (err) => {
         if (err) {
-            console.error('Erro ao criar tabela produtos:', err.stack);
+            console.error('Erro ao criar tabela produtos ou índices:', err.stack);
             process.exit(1);
         }
-        console.log('Tabela produtos criada ou verificada');
+        console.log('Tabela produtos e índices criados ou verificados');
     });
 });
 
@@ -218,7 +227,7 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
             INSERT INTO produtos (nome, descricao, preco, imagens, categoria, loja, link)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *`;
-        const values = [nome, descricao, parseFloat(preco), imageUrls, categoria, loja, link];
+        const values = [nome, descricao, parseFloat(preco), JSON.stringify(imageUrls), categoria, loja, link];
         const { rows } = await pool.query(query, values);
 
         io.emit('novoProduto', rows[0]);
@@ -272,7 +281,7 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
             nome,
             descricao,
             parseFloat(preco),
-            imageUrls.length > 0 ? imageUrls : (await pool.query('SELECT imagens FROM produtos WHERE id = $1', [id])).rows[0].imagens,
+            imageUrls.length > 0 ? JSON.stringify(imageUrls) : (await pool.query('SELECT imagens FROM produtos WHERE id = $1', [id])).rows[0].imagens,
             categoria,
             loja,
             link,
