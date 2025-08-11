@@ -10,13 +10,13 @@ const app = express();
 app.use(cors({ origin: ['https://www.centrodecompra.com.br', 'http://localhost:8080'] }));
 
 // Servir arquivos estáticos
-app.use('/imagens', express.static(path.join(__dirname, 'public/imagens')));
-app.use('/upload', express.static(path.join(__dirname, 'upload')));
+app.use('/imagens', express.static(path.join(__dirname, 'imagens')));
+app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
 
 // Configurar multer para salvar imagens
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, 'upload');
+    const uploadDir = path.join(__dirname, 'Uploads');
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -35,7 +35,7 @@ const upload = multer({
       cb(null, true);
     }
   },
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB por arquivo
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
 // Simulação de banco de dados
@@ -44,9 +44,9 @@ let produtos = [];
 // Rota para cadastrar produto
 app.post('/api/produtos', upload.array('imagens', 5), (req, res) => {
   const { nome, categoria, loja, link } = req.body;
-  const imagens = req.files.map(file => `/upload/${file.filename}`);
+  const imagens = req.files.length ? req.files.map(file => `/Uploads/${file.filename}`) : [];
 
-  if (!nome || !categoria || !loja || !imagens.length) {
+  if (!nome || !categoria || !loja) {
     return res.status(400).json({ details: 'Campos obrigatórios ausentes' });
   }
 
@@ -69,6 +69,41 @@ app.get('/api/produtos', (req, res) => {
     })),
     total: produtos.length,
   });
+});
+
+// Rota para atualizar produto
+app.put('/api/produtos/:id', upload.array('imagens', 5), (req, res) => {
+  const id = parseInt(req.params.id);
+  const { nome, categoria, loja, link } = req.body;
+  const imagens = req.files.length ? req.files.map(file => `/Uploads/${file.filename}`) : [];
+
+  const index = produtos.findIndex(p => p.id === id);
+  if (index === -1) {
+    return res.status(404).json({ details: 'Produto não encontrado' });
+  }
+
+  produtos[index] = {
+    id,
+    nome: nome || produtos[index].nome,
+    categoria: categoria || produtos[index].categoria,
+    loja: loja || produtos[index].loja,
+    imagens: imagens.length ? imagens : produtos[index].imagens,
+    link: link || produtos[index].link,
+  };
+
+  res.json({ message: 'Produto atualizado com sucesso', produto: produtos[index] });
+});
+
+// Rota para excluir produto
+app.delete('/api/produtos/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const index = produtos.findIndex(p => p.id === id);
+  if (index === -1) {
+    return res.status(404).json({ details: 'Produto não encontrado' });
+  }
+
+  produtos.splice(index, 1);
+  res.json({ message: 'Produto excluído com sucesso' });
 });
 
 const PORT = process.env.PORT || 5432;
