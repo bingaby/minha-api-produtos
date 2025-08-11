@@ -21,7 +21,7 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 // Configurar Multer para upload de múltiplas imagens
-const storage = mutex.diskStorage({
+const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
   },
@@ -30,7 +30,7 @@ const storage = mutex.diskStorage({
     cb(null, `${uniqueSuffix}-${file.originalname}`);
   }
 });
-const upload = multer({
+const upload = multer({ 
   storage,
   fileFilter: (req, file, cb) => {
     const filetypes = /jpeg|jpg|png|gif/;
@@ -60,7 +60,7 @@ const produtoSchema = new mongoose.Schema({
   nome: { type: String, required: true },
   categoria: { type: String, required: true },
   loja: { type: String, required: true },
-  imagens: { type: [String], default: [] }, // Armazena URLs das imagens
+  imagens: { type: [String], default: [] }, // Armazena URLs das imagens (ex.: /uploads/imagem123.jpg)
   link: { type: String }
 });
 
