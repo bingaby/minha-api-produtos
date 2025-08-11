@@ -7,12 +7,10 @@ const cors = require('cors');
 const app = express();
 
 // Configurar CORS
-app.use(cors({
-  origin: ['https://centrodecompra.com.br', 'http://localhost:8080'], // Adicione os domínios do frontend
-}));
+app.use(cors({ origin: ['https://www.centrodecompra.com.br', 'http://localhost:8080'] }));
 
-// Servir arquivos estáticos (para admin.js e imagens)
-app.use(express.static(path.join(__dirname, 'public')));
+// Servir arquivos estáticos
+app.use('/imagens', express.static(path.join(__dirname, 'public/imagens')));
 app.use('/upload', express.static(path.join(__dirname, 'upload')));
 
 // Configurar multer para salvar imagens
@@ -25,20 +23,19 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, `${uniqueSuffix}-${file.originalname}`);
+    cb(null, `${Date.now()}-${file.originalname}`);
   },
 });
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
-    if (!allowedTypes.includes(file.mimetype)) {
-      return cb(new Error('Apenas imagens JPEG, PNG ou GIF são permitidas.'));
+    if (!['image/jpeg', 'image/png', 'image/gif'].includes(file.mimetype)) {
+      cb(new Error('Apenas JPEG, PNG ou GIF são permitidos.'));
+    } else {
+      cb(null, true);
     }
-    cb(null, true);
   },
-  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB por arquivo
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB por arquivo
 });
 
 // Simulação de banco de dados
@@ -46,30 +43,16 @@ let produtos = [];
 
 // Rota para cadastrar produto
 app.post('/api/produtos', upload.array('imagens', 5), (req, res) => {
-  try {
-    const { nome, categoria, loja, link } = req.body;
-    const imagens = req.files.map(file => `/upload/${file.filename}`);
+  const { nome, categoria, loja, link } = req.body;
+  const imagens = req.files.map(file => `/upload/${file.filename}`);
 
-    if (!nome || !categoria || !loja || imagens.length === 0) {
-      return res.status(400).json({ details: 'Campos obrigatórios ausentes' });
-    }
-
-    const produto = {
-      id: produtos.length + 1,
-      nome,
-      categoria,
-      loja,
-      imagens,
-      link: link || '',
-    };
-
-    produtos.push(produto);
-    console.log('Produto cadastrado:', produto);
-    res.status(201).json({ message: 'Produto cadastrado com sucesso', produto });
-  } catch (error) {
-    console.error('Erro ao cadastrar produto:', error);
-    res.status(500).json({ details: error.message });
+  if (!nome || !categoria || !loja || !imagens.length) {
+    return res.status(400).json({ details: 'Campos obrigatórios ausentes' });
   }
+
+  const produto = { id: produtos.length + 1, nome, categoria, loja, imagens, link: link || '' };
+  produtos.push(produto);
+  res.status(201).json({ message: 'Produto cadastrado com sucesso', produto });
 });
 
 // Rota para listar produtos
@@ -79,11 +62,10 @@ app.get('/api/produtos', (req, res) => {
   const start = (page - 1) * limit;
   const end = start + limit;
 
-  const produtosPaginados = produtos.slice(start, end);
   res.json({
-    produtos: produtosPaginados.map(produto => ({
+    produtos: produtos.slice(start, end).map(produto => ({
       ...produto,
-      imagens: produto.imagens.map(img => img.startsWith('http') ? img : `https://minha-api-produtos.onrender.com${img}`),
+      imagens: produto.imagens.map(img => `https://minha-api-produtos.onrender.com${img}`),
     })),
     total: produtos.length,
   });
