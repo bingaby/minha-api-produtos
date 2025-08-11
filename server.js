@@ -8,26 +8,27 @@ const cloudinary = require('cloudinary').v2;
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configuração do Express
 app.use(express.json());
-app.use(cors());
-app.use(express.static('public')); // Servir arquivos estáticos do diretório /public
+app.use(cors({ origin: 'https://<seu-usuario>.github.io' })); // Permitir GitHub Pages
+app.use(express.static('public')); // Servir arquivos estáticos, se necessário
 
-// Configuração do Multer para upload de arquivos
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Configuração do Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Configuração do PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
+});
+
+// Rota de teste
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Servidor funcionando' });
 });
 
 // Rota para buscar um produto por ID
@@ -55,35 +56,16 @@ app.post('/api/produtos', upload.array('imagens', 10), async (req, res) => {
 
   console.log('Dados recebidos no POST:', { nome, descricao, preco, link, categoria, loja, imagens: imagens?.length });
 
-  // Validação de campos obrigatórios
   if (!nome || !descricao || !preco || !link || !categoria || !loja) {
     console.error('Campos obrigatórios faltando:', { nome, descricao, preco, link, categoria, loja });
     return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
   }
 
-  // Validação de comprimento
-  if (nome.length > 255) {
-    console.error('Nome excede limite:', nome);
-    return res.status(400).json({ error: 'O nome do produto deve ter no máximo 255 caracteres.' });
-  }
-  if (descricao.length > 255) {
-    console.error('Descrição excede limite:', descricao);
-    return res.status(400).json({ error: 'A descrição deve ter no máximo 255 caracteres.' });
-  }
-  if (link.length > 255) {
-    console.error('Link excede limite:', link);
-    return res.status(400).json({ error: 'O link deve ter no máximo 255 caracteres.' });
-  }
-  if (loja.length > 255) {
-    console.error('Loja excede limite:', loja);
-    return res.status(400).json({ error: 'A loja deve ter no máximo 255 caracteres.' });
-  }
-  if (categoria.length > 255) {
-    console.error('Categoria excede limite:', categoria);
-    return res.status(400).json({ error: 'A categoria deve ter no máximo 255 caracteres.' });
+  if (nome.length > 255 || descricao.length > 255 || link.length > 255 || loja.length > 255 || categoria.length > 255) {
+    console.error('Limite de caracteres excedido');
+    return res.status(400).json({ error: 'Os campos devem ter no máximo 255 caracteres.' });
   }
 
-  // Validação de preço
   const precoNum = parseFloat(preco);
   if (isNaN(precoNum) || precoNum < 0) {
     console.error('Preço inválido:', preco);
@@ -128,35 +110,16 @@ app.put('/api/produtos/:id', upload.array('imagens', 10), async (req, res) => {
 
   console.log('Dados recebidos no PUT:', { id, nome, descricao, preco, link, categoria, loja, imagens: imagens?.length });
 
-  // Validação de campos obrigatórios
   if (!nome || !descricao || !preco || !link || !categoria || !loja) {
     console.error('Campos obrigatórios faltando:', { nome, descricao, preco, link, categoria, loja });
     return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
   }
 
-  // Validação de comprimento
-  if (nome.length > 255) {
-    console.error('Nome excede limite:', nome);
-    return res.status(400).json({ error: 'O nome do produto deve ter no máximo 255 caracteres.' });
-  }
-  if (descricao.length > 255) {
-    console.error('Descrição excede limite:', descricao);
-    return res.status(400).json({ error: 'A descrição deve ter no máximo 255 caracteres.' });
-  }
-  if (link.length > 255) {
-    console.error('Link excede limite:', link);
-    return res.status(400).json({ error: 'O link deve ter no máximo 255 caracteres.' });
-  }
-  if (loja.length > 255) {
-    console.error('Loja excede limite:', loja);
-    return res.status(400).json({ error: 'A loja deve ter no máximo 255 caracteres.' });
-  }
-  if (categoria.length > 255) {
-    console.error('Categoria excede limite:', categoria);
-    return res.status(400).json({ error: 'A categoria deve ter no máximo 255 caracteres.' });
+  if (nome.length > 255 || descricao.length > 255 || link.length > 255 || loja.length > 255 || categoria.length > 255) {
+    console.error('Limite de caracteres excedido');
+    return res.status(400).json({ error: 'Os campos devem ter no máximo 255 caracteres.' });
   }
 
-  // Validação de preço
   const precoNum = parseFloat(preco);
   if (isNaN(precoNum) || precoNum < 0) {
     console.error('Preço inválido:', preco);
@@ -229,7 +192,6 @@ app.get('/api/produtos', async (req, res) => {
       query += ' WHERE ' + conditions.join(' AND ');
     }
 
-    // Ordenação
     switch (sort) {
       case 'price-low':
         query += ' ORDER BY preco ASC';
@@ -283,7 +245,18 @@ app.delete('/api/produtos/:id', async (req, res) => {
   }
 });
 
-// Iniciar o servidor
+// Middleware para erros genéricos
+app.use((err, req, res, next) => {
+  console.error('Erro no servidor:', err);
+  res.status(500).json({ error: 'Erro interno do servidor.' });
+});
+
+// Middleware para rotas não encontradas
+app.use((req, res) => {
+  console.error('Rota não encontrada:', req.method, req.url);
+  res.status(404).json({ error: 'Rota não encontrada' });
+});
+
 app.listen(port, () => {
   console.log(`Servidor rodando na porta ${port}`);
 });
