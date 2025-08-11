@@ -8,6 +8,7 @@ const cloudinary = require('cloudinary').v2;
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Configuração do Express
 app.use(express.json());
 app.use(cors());
 
@@ -40,7 +41,7 @@ app.post('/api/produtos', upload.array('imagens', 10), async (req, res) => {
   const imagens = req.files;
 
   if (!nome || !descricao || !preco || !link || !categoria || !loja || !imagens || imagens.length === 0) {
-    return res.status(400).send('Todos os campos, incluindo as imagens, são obrigatórios.');
+    return res.status(400).json({ error: 'Todos os campos, incluindo as imagens, são obrigatórios.' });
   }
 
   try {
@@ -66,7 +67,7 @@ app.post('/api/produtos', upload.array('imagens', 10), async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Erro ao cadastrar produto:', err);
-    res.status(500).send('Erro interno do servidor.');
+    res.status(500).json({ error: 'Erro interno do servidor.' });
   }
 });
 
@@ -79,7 +80,28 @@ app.get('/api/produtos', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('Erro ao buscar produtos:', err);
-    res.status(500).send('Erro interno do servidor.');
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+  }
+});
+
+// Rota para excluir um produto por ID
+app.delete('/api/produtos/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const client = await pool.connect();
+    const query = 'DELETE FROM produtos WHERE id = $1 RETURNING *';
+    const result = await client.query(query, [id]);
+    client.release();
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+
+    res.status(200).json({ message: `Produto com ID ${id} excluído com sucesso`, produto: result.rows[0] });
+  } catch (err) {
+    console.error('Erro ao excluir produto:', err);
+    res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
 
