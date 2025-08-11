@@ -35,7 +35,7 @@ const pool = new Pool({
 // ROTAS DO BACKEND
 // ===================================
 
-// Rota para cadastrar um novo produto (SEM autenticação)
+// Rota para cadastrar um novo produto
 app.post('/api/produtos', upload.array('imagens', 10), async (req, res) => {
   const { nome, descricao, preco, link, categoria, loja } = req.body;
   const imagens = req.files;
@@ -45,7 +45,6 @@ app.post('/api/produtos', upload.array('imagens', 10), async (req, res) => {
   }
 
   try {
-    // Upload das imagens para o Cloudinary
     const uploadedImages = await Promise.all(imagens.map(async (file) => {
       const result = await cloudinary.uploader.upload(`data:image/jpeg;base64,${file.buffer.toString('base64')}`, {
         folder: 'produtos',
@@ -53,7 +52,6 @@ app.post('/api/produtos', upload.array('imagens', 10), async (req, res) => {
       return result.secure_url;
     }));
 
-    // Inserir produto no PostgreSQL
     const client = await pool.connect();
     const query = `
       INSERT INTO produtos (nome, descricao, preco, link, categoria, loja, imagens)
@@ -71,13 +69,44 @@ app.post('/api/produtos', upload.array('imagens', 10), async (req, res) => {
   }
 });
 
-// Rota para buscar todos os produtos
+// Rota para buscar todos os produtos com filtros e paginação
 app.get('/api/produtos', async (req, res) => {
+  const { page = 1, limit = 12, categoria, loja, busca } = req.query;
+  const offset = (page - 1) * limit;
+
   try {
     const client = await pool.connect();
-    const result = await client.query('SELECT * FROM produtos ORDER BY id DESC');
+    let query = 'SELECT * FROM produtos';
+    const values = [];
+    const conditions = [];
+
+    if (categoria && categoria !== 'todas') {
+      conditions.push(`categoria = $${values.length + 1}`);
+      values.push(categoria);
+    }
+    if (loja && loja !== 'todas') {
+      conditions.push(`loja = $${values.length + 1}`);
+      values.push(loja);
+    }
+    if (busca) {
+      conditions.push(`(nome ILIKE $${values.length + 1} OR descricao ILIKE $${values.length + 1})`);
+      values.push(`%${busca}%`);
+    }
+
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY id DESC LIMIT $' + (values.length + 1) + ' OFFSET $' + (values.length + 2);
+    values.push(limit, offset);
+
+    const result = await client.query(query, values);
+    const countQuery = 'SELECT COUNT(*) FROM produtos' + (conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '');
+    const countResult = await client.query(countQuery, values.slice(0, -2));
+    const total = parseInt(countResult.rows[0].count);
+
     client.release();
-    res.json(result.rows);
+    res.json({ data: result.rows, total });
   } catch (err) {
     console.error('Erro ao buscar produtos:', err);
     res.status(500).json({ error: 'Erro interno do servidor.' });
