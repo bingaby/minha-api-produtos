@@ -1,108 +1,85 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const app = express();
-const port = process.env.PORT || 10000;
 
-// Middleware
+// Configurar CORS para permitir requisições do frontend
+const cors = require('cors');
 app.use(cors());
-app.use(express.json());
 
-// Servir arquivos estáticos da pasta public/uploads
-app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+// Configurar pasta estática para servir imagens
+app.use('/upload', express.static(path.join(__dirname, 'upload')));
 
-// Configurar pasta de upload
-const uploadDir = path.join(__dirname, 'public/uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configurar Multer para upload de múltiplas imagens
+// Configurar multer para salvar imagens na pasta 'upload'
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'upload');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
+    }
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     cb(null, `${uniqueSuffix}-${file.originalname}`);
-  }
+  },
 });
-const upload = multer({ 
+const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|gif/;
-    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypes.test(file.mimetype);
-    if (extname && mimetype) {
-      cb(null, true);
-    } else {
-      cb(new Error('Apenas imagens JPEG, PNG ou GIF são permitidas'));
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return cb(new Error('Apenas imagens JPEG, PNG ou GIF são permitidas.'));
     }
+    cb(null, true);
   },
-  limits: { fileSize: 5 * 1024 * 1024 } // Limite de 5MB por imagem
+  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB por arquivo
 });
 
-// Conectar ao MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/minha-api-produtos', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}).then(() => {
-  console.log('Conectado ao MongoDB');
-}).catch(err => {
-  console.error('Erro ao conectar ao MongoDB:', err);
-});
+// Simulação de banco de dados (substitua por MongoDB, MySQL, etc.)
+let produtos = [];
 
-// Esquema do Produto
-const produtoSchema = new mongoose.Schema({
-  nome: { type: String, required: true },
-  categoria: { type: String, required: true },
-  loja: { type: String, required: true },
-  imagens: { type: [String], default: [] },
-  link: { type: String }
-});
-
-const Produto = mongoose.model('Produto', produtoSchema);
-
-// Rota para buscar produtos
-app.get('/api/produtos', async (req, res) => {
-  try {
-    const { page = 1, limit = 24 } = req.query;
-    const skip = (page - 1) * limit;
-    const produtos = await Produto.find()
-      .skip(skip)
-      .limit(parseInt(limit));
-    const total = await Produto.countDocuments();
-    console.log(`GET /api/produtos: page=${page}, limit=${limit}, produtos=${produtos.length}, total=${total}`);
-    res.json({ produtos, total });
-  } catch (error) {
-    console.error('Erro na rota /api/produtos:', error);
-    res.status(500).json({ details: 'Erro ao buscar produtos: ' + error.message });
-  }
-});
-
-// Rota para cadastrar produtos
-app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
+// Rota para cadastrar produto
+app.post('/api/produtos', upload.array('imagens', 5), (req, res) => {
   try {
     const { nome, categoria, loja, link } = req.body;
-    if (!nome || !categoria || !loja) {
-      console.log('POST /api/produtos: Campos obrigatórios faltando');
-      return res.status(400).json({ details: 'Campos obrigatórios: nome, categoria, loja' });
+    const imagens = req.files.map(file => `/upload/${file.filename}`);
+
+    if (!nome || !categoria || !loja || imagens.length === 0) {
+      return res.status(400).json({ details: 'Campos obrigatórios ausentes' });
     }
-    const imagens = req.files.map(file => `/uploads/${file.filename}`);
-    const produto = new Produto({ nome, categoria, loja, imagens, link });
-    await produto.save();
-    console.log(`Produto cadastrado: ${nome}, imagens: ${imagens}`);
-    res.status(201).json({ message: 'Produto cadastrado com sucesso' });
+
+    const produto = {
+      id: produtos.length + 1,
+      nome,
+      categoria,
+      loja,
+      imagens,
+      link: link || '',
+    };
+
+    produtos.push(produto);
+    res.status(201).json({ message: 'Produto cadastrado com sucesso', produto });
   } catch (error) {
     console.error('Erro ao cadastrar produto:', error);
-    res.status(500).json({ details: 'Erro ao cadastrar produto: ' + error.message });
+    res.status(500).json({ details: error.message });
   }
 });
 
-// Iniciar o servidor
-app.listen(port, () => {
-  console.log(`Servidor rodando na porta ${port}`);
+// Rota para listar produtos
+app.get('/api/produtos', (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 24;
+  const start = (page - 1) * limit;
+  const end = start + limit;
+
+  const produtosPaginados = produtos.slice(start, end);
+  res.json({
+    produtos: produtosPaginados,
+    total: produtos.length,
+  });
 });
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
