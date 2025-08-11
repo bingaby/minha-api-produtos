@@ -2,21 +2,25 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const cors = require('cors');
+
 const app = express();
 
-// Configurar CORS para permitir requisições do frontend
-const cors = require('cors');
-app.use(cors());
+// Configurar CORS
+app.use(cors({
+  origin: ['https://centrodecompra.com.br', 'http://localhost:8080'], // Adicione os domínios do frontend
+}));
 
-// Configurar pasta estática para servir imagens
+// Servir arquivos estáticos (para admin.js e imagens)
+app.use(express.static(path.join(__dirname, 'public')));
 app.use('/upload', express.static(path.join(__dirname, 'upload')));
 
-// Configurar multer para salvar imagens na pasta 'upload'
+// Configurar multer para salvar imagens
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, 'upload');
     if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir);
+      fs.mkdirSync(uploadDir, { recursive: true });
     }
     cb(null, uploadDir);
   },
@@ -37,7 +41,7 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB por arquivo
 });
 
-// Simulação de banco de dados (substitua por MongoDB, MySQL, etc.)
+// Simulação de banco de dados
 let produtos = [];
 
 // Rota para cadastrar produto
@@ -60,6 +64,7 @@ app.post('/api/produtos', upload.array('imagens', 5), (req, res) => {
     };
 
     produtos.push(produto);
+    console.log('Produto cadastrado:', produto);
     res.status(201).json({ message: 'Produto cadastrado com sucesso', produto });
   } catch (error) {
     console.error('Erro ao cadastrar produto:', error);
@@ -76,10 +81,13 @@ app.get('/api/produtos', (req, res) => {
 
   const produtosPaginados = produtos.slice(start, end);
   res.json({
-    produtos: produtosPaginados,
+    produtos: produtosPaginados.map(produto => ({
+      ...produto,
+      imagens: produto.imagens.map(img => img.startsWith('http') ? img : `https://minha-api-produtos.onrender.com${img}`),
+    })),
     total: produtos.length,
   });
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 5432;
 app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
