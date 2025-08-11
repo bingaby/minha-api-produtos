@@ -60,13 +60,13 @@ const produtoSchema = new mongoose.Schema({
   nome: { type: String, required: true },
   categoria: { type: String, required: true },
   loja: { type: String, required: true },
-  imagens: { type: [String], default: [] }, // Armazena URLs das imagens (ex.: /uploads/imagem123.jpg)
+  imagens: { type: [String], default: [] },
   link: { type: String }
 });
 
 const Produto = mongoose.model('Produto', produtoSchema);
 
-// Rota para buscar produtos (usada pela página principal)
+// Rota para buscar produtos
 app.get('/api/produtos', async (req, res) => {
   try {
     const { page = 1, limit = 24 } = req.query;
@@ -75,24 +75,29 @@ app.get('/api/produtos', async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
     const total = await Produto.countDocuments();
+    console.log(`GET /api/produtos: page=${page}, limit=${limit}, produtos=${produtos.length}, total=${total}`);
     res.json({ produtos, total });
   } catch (error) {
+    console.error('Erro na rota /api/produtos:', error);
     res.status(500).json({ details: 'Erro ao buscar produtos: ' + error.message });
   }
 });
 
-// Rota para cadastrar produtos (usada pela página admin-xyz-123.html)
+// Rota para cadastrar produtos
 app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
   try {
     const { nome, categoria, loja, link } = req.body;
     if (!nome || !categoria || !loja) {
+      console.log('POST /api/produtos: Campos obrigatórios faltando');
       return res.status(400).json({ details: 'Campos obrigatórios: nome, categoria, loja' });
     }
     const imagens = req.files.map(file => `/uploads/${file.filename}`);
     const produto = new Produto({ nome, categoria, loja, imagens, link });
     await produto.save();
+    console.log(`Produto cadastrado: ${nome}, imagens: ${imagens}`);
     res.status(201).json({ message: 'Produto cadastrado com sucesso' });
   } catch (error) {
+    console.error('Erro ao cadastrar produto:', error);
     res.status(500).json({ details: 'Erro ao cadastrar produto: ' + error.message });
   }
 });
