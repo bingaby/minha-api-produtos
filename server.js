@@ -11,7 +11,8 @@ app.use(cors({ origin: ['https://www.centrodecompra.com.br', 'http://localhost:8
 
 // Servir arquivos estáticos
 app.use('/imagens', express.static(path.join(__dirname, 'imagens')));
-app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
+app.use('/Uploads', express.static(path.join(__dirname, 'Uploads')));
+app.use(express.static(path.join(__dirname, '/'))); // Serve index.html e admin-xyz-123.html
 
 // Configurar multer
 const storage = multer.diskStorage({
