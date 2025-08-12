@@ -13,7 +13,7 @@ app.use(cors({ origin: ['https://www.centrodecompra.com.br', 'http://localhost:8
 app.use('/imagens', express.static(path.join(__dirname, 'imagens')));
 app.use('/uploads', express.static(path.join(__dirname, 'Uploads')));
 
-// Configurar multer para salvar imagens
+// Configurar multer
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, 'Uploads');
@@ -38,8 +38,25 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
-// Simulação de banco de dados
+// Carregar produtos de produtos.json
+const produtosFile = path.join(__dirname, 'produtos.json');
 let produtos = [];
+if (fs.existsSync(produtosFile)) {
+  try {
+    produtos = JSON.parse(fs.readFileSync(produtosFile, 'utf8'));
+  } catch (error) {
+    console.error('Erro ao carregar produtos.json:', error);
+  }
+}
+
+// Função para salvar produtos em produtos.json
+const salvarProdutos = () => {
+  try {
+    fs.writeFileSync(produtosFile, JSON.stringify(produtos, null, 2));
+  } catch (error) {
+    console.error('Erro ao salvar produtos.json:', error);
+  }
+};
 
 // Rota para cadastrar produto
 app.post('/api/produtos', upload.array('imagens', 5), (req, res) => {
@@ -52,6 +69,7 @@ app.post('/api/produtos', upload.array('imagens', 5), (req, res) => {
 
   const produto = { id: produtos.length + 1, nome, categoria, loja, imagens, link: link || '' };
   produtos.push(produto);
+  salvarProdutos();
   res.status(201).json({ message: 'Produto cadastrado com sucesso', produto });
 });
 
@@ -90,7 +108,7 @@ app.put('/api/produtos/:id', upload.array('imagens', 5), (req, res) => {
     imagens: imagens.length ? imagens : produtos[index].imagens,
     link: link || produtos[index].link,
   };
-
+  salvarProdutos();
   res.json({ message: 'Produto atualizado com sucesso', produto: produtos[index] });
 });
 
@@ -103,6 +121,7 @@ app.delete('/api/produtos/:id', (req, res) => {
   }
 
   produtos.splice(index, 1);
+  salvarProdutos();
   res.json({ message: 'Produto excluído com sucesso' });
 });
 
