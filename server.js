@@ -14,7 +14,7 @@ const allowedOrigins = [
     'http://localhost:8080',
     'https://www.centrodecompra.com.br',
     'https://minha-api-produtos.onrender.com',
-    // Adicione o domínio do frontend hospedado no Render
+    // Adicione o domínio do frontend hospedado (ex.: https://seu-frontend.netlify.app)
 ];
 app.use(cors({
     origin: (origin, callback) => {
@@ -30,7 +30,9 @@ app.use(express.json());
 // Middleware de autenticação
 const authenticate = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'seu_token_secreto';
+    const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+    console.log('Cabeçalho Authorization recebido:', authHeader);
+    console.log('ADMIN_TOKEN esperado:', `Bearer ${ADMIN_TOKEN}`);
     if (!authHeader || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
         return res.status(401).json({ status: 'error', message: 'Autenticação necessária' });
     }
@@ -39,11 +41,11 @@ const authenticate = (req, res, next) => {
 
 // Configuração do banco de dados
 const pool = new Pool({
-    user: process.env.DB_USER,
-    host: process.env.DB_HOST,
-    database: process.env.DB_NAME,
-    password: process.env.DB_PASSWORD,
-    port: process.env.DB_PORT,
+    user: process.env.PGUSER,
+    host: process.env.PGHOST,
+    database: process.env.PGDATABASE,
+    password: process.env.PGPASSWORD,
+    port: process.env.PGPORT,
     ssl: { rejectUnauthorized: false },
 });
 
@@ -104,53 +106,21 @@ const CATEGORIAS_PERMITIDAS = [
 ];
 const LOJAS_PERMITIDAS = ['amazon', 'magalu', 'shein', 'shopee', 'mercadolivre', 'alibaba'];
 
-// Rota para cadastrar produto
-app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, res) => {
+// Rota para buscar produto por ID
+app.get('/api/produtos/:id', async (req, res) => {
     try {
-        const { nome, categoria, loja, link } = req.body;
-        const imagens = req.files;
+        const { id } = req.params;
+        const query = 'SELECT * FROM produtos WHERE id = $1';
+        const { rows } = await pool.query(query, [id]);
 
-        if (!nome || !categoria || !loja || !imagens || imagens.length === 0) {
-            return res.status(400).json({ status: 'error', message: 'Campos obrigatórios ausentes, incluindo pelo menos uma imagem' });
+        if (rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
         }
 
-        if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
-        }
-        if (!LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
-        }
-        if (!link.match(/^https?:\/\//)) {
-            return res.status(400).json({ status: 'error', message: 'Link inválido' });
-        }
-
-        const imageUrls = [];
-        for (const file of imagens) {
-            const result = await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
-                    (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
-                    }
-                );
-                uploadStream.end(file.buffer);
-            });
-            imageUrls.push(result.secure_url);
-        }
-
-        const query = `
-            INSERT INTO produtos (nome, categoria, loja, imagens, link)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING *`;
-        const values = [nome, categoria, loja, imageUrls, link];
-        const { rows } = await pool.query(query, values);
-
-        io.emit('novoProduto', rows[0]);
-        res.status(201).json({ status: 'success', message: 'Produto cadastrado com sucesso', produto: rows[0] });
+        res.json({ status: 'success', data: rows[0] });
     } catch (error) {
-        console.error('Erro ao cadastrar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao cadastrar produto' });
+        console.error('Erro ao buscar produto:', error);
+        res.status(500).json({ status: 'error', message: 'Erro ao buscar produto' });
     }
 });
 
@@ -194,12 +164,62 @@ app.get('/api/produtos', async (req, res) => {
 
         res.json({
             status: 'success',
-            produtos: rows,
+            data: rows,
             total: parseInt(countResult.rows[0].count),
         });
     } catch (error) {
         console.error('Erro ao listar produtos:', error);
         res.status(500).json({ status: 'error', message: 'Erro ao listar produtos' });
+    }
+});
+
+// Rota para cadastrar produto
+app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, res) => {
+    try {
+        const { nome, categoria, loja, link } = req.body;
+        const imagens = req.files;
+
+        if (!nome || !categoria || !loja || !imagens || imagens.length === 0) {
+            return res.status(400).json({ status: 'error', message: 'Campos obrigatórios ausentes, incluindo pelo menos uma imagem' });
+        }
+
+        if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
+            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
+        }
+        if (!LOJAS_PERMITIDAS.includes(loja)) {
+            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
+        }
+        if (!link.match(/^https?:\/\//)) {
+            return res.status(400).json({ status: 'error', message: 'Link inválido' });
+        }
+
+        const imageUrls = [];
+        for (const file of imagens) {
+            const result = await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
+                    (error, result) => {
+                        if (error) reject(error);
+                        else resolve(result);
+                    }
+                );
+                uploadStream.end(file.buffer);
+            });
+            imageUrls.push(result.secure_url);
+        }
+
+        const query = `
+            INSERT INTO produtos (nome, categoria, loja, imagens, link)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *`;
+        const values = [nome, categoria, loja, imageUrls, link];
+        const { rows } = await pool.query(query, values);
+
+        io.emit('novoProduto', rows[0]);
+        res.status(201).json({ status: 'success', message: 'Produto cadastrado com sucesso', data: rows[0] });
+    } catch (error) {
+        console.error('Erro ao cadastrar produto:', error);
+        res.status(500).json({ status: 'error', message: 'Erro ao cadastrar produto' });
     }
 });
 
@@ -261,7 +281,7 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
         }
 
         io.emit('produtoAtualizado', rows[0]);
-        res.json({ status: 'success', message: 'Produto atualizado com sucesso', produto: rows[0] });
+        res.json({ status: 'success', message: 'Produto atualizado com sucesso', data: rows[0] });
     } catch (error) {
         console.error('Erro ao atualizar produto:', error);
         res.status(500).json({ status: 'error', message: 'Erro ao atualizar produto' });
