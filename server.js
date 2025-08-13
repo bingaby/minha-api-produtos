@@ -28,23 +28,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Middleware de autenticação
-const authenticate = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
-    console.log('Cabeçalho Authorization recebido:', authHeader);
-    console.log('ADMIN_TOKEN esperado:', `Bearer ${ADMIN_TOKEN}`);
-    if (!ADMIN_TOKEN) {
-        console.error('Erro: ADMIN_TOKEN não definido nas variáveis de ambiente');
-        return res.status(500).json({ status: 'error', message: 'Configuração do servidor inválida' });
-    }
-    if (!authHeader || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
-        console.warn(`Autenticação falhou. Recebido: ${authHeader}, Esperado: Bearer ${ADMIN_TOKEN}`);
-        return res.status(401).json({ status: 'error', message: 'Autenticação necessária' });
-    }
-    next();
-};
-
 // Configuração do banco de dados usando DATABASE_URL
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -176,7 +159,7 @@ app.get('/api/produtos', async (req, res) => {
 });
 
 // Rota para cadastrar produto
-app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, res) => {
+app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
     try {
         const { nome, categoria, loja, link } = req.body;
         const imagens = req.files;
@@ -226,7 +209,7 @@ app.post('/api/produtos', authenticate, upload.array('imagens', 5), async (req, 
 });
 
 // Rota para atualizar produto
-app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (req, res) => {
+app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
     try {
         const { id } = req.params;
         const { nome, categoria, loja, link } = req.body;
@@ -291,7 +274,7 @@ app.put('/api/produtos/:id', authenticate, upload.array('imagens', 5), async (re
 });
 
 // Rota para excluir produto
-app.delete('/api/produtos/:id', authenticate, async (req, res) => {
+app.delete('/api/produtos/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const query = 'DELETE FROM produtos WHERE id = $1 RETURNING *';
