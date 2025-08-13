@@ -14,13 +14,14 @@ const allowedOrigins = [
     'http://localhost:8080',
     'https://www.centrodecompra.com.br',
     'https://minha-api-produtos.onrender.com',
-    // Adicione o domínio do frontend hospedado (ex.: https://seu-frontend.netlify.app)
+    // Substitua pelo domínio real do frontend, ex.: 'https://seu-frontend.netlify.app'
 ];
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
+            console.error(`Origem não permitida pelo CORS: ${origin}`);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -33,19 +34,20 @@ const authenticate = (req, res, next) => {
     const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
     console.log('Cabeçalho Authorization recebido:', authHeader);
     console.log('ADMIN_TOKEN esperado:', `Bearer ${ADMIN_TOKEN}`);
+    if (!ADMIN_TOKEN) {
+        console.error('Erro: ADMIN_TOKEN não definido nas variáveis de ambiente');
+        return res.status(500).json({ status: 'error', message: 'Configuração do servidor inválida' });
+    }
     if (!authHeader || authHeader !== `Bearer ${ADMIN_TOKEN}`) {
+        console.warn(`Autenticação falhou. Recebido: ${authHeader}, Esperado: Bearer ${ADMIN_TOKEN}`);
         return res.status(401).json({ status: 'error', message: 'Autenticação necessária' });
     }
     next();
 };
 
-// Configuração do banco de dados
+// Configuração do banco de dados usando DATABASE_URL
 const pool = new Pool({
-    user: process.env.PGUSER,
-    host: process.env.PGHOST,
-    database: process.env.PGDATABASE,
-    password: process.env.PGPASSWORD,
-    port: process.env.PGPORT,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
 });
 
