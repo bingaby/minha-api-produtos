@@ -84,13 +84,20 @@ const LOJAS_PERMITIDAS = ['todas', 'amazon', 'shein', 'shopee', 'magalu', 'merca
 app.get('/api/produtos', async (req, res) => {
     try {
         console.log('GET /api/produtos recebido:', req.query);
-        const { page = 1, limit = 10, categoria, loja } = req.query;
+        const { page = 1, limit = 10, categoria, loja, busca } = req.query; // Adicionado parâmetro busca
         const offset = (page - 1) * limit;
         let query = 'SELECT * FROM produtos';
         let countQuery = 'SELECT COUNT(*) FROM produtos';
         const values = [];
         const conditions = [];
 
+        // Adicionar filtro de busca
+        if (busca) {
+            conditions.push(`LOWER(nome) LIKE LOWER($${values.length + 1})`);
+            values.push(`%${busca}%`);
+        }
+
+        // Filtros de categoria e loja
         if (categoria && categoria !== 'todas') {
             conditions.push(`categoria = $${values.length + 1}`);
             values.push(categoria);
@@ -99,6 +106,7 @@ app.get('/api/produtos', async (req, res) => {
             conditions.push(`loja = $${values.length + 1}`);
             values.push(loja);
         }
+
         if (conditions.length > 0) {
             query += ` WHERE ${conditions.join(' AND ')}`;
             countQuery += ` WHERE ${conditions.join(' AND ')}`;
