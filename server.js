@@ -11,14 +11,14 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
     cors: {
-        origin: ["https://seu-frontend.netlify.app", "http://localhost:3000"], // Substitua pelo domínio do frontend
+        origin: ["https://www.centrodecompra.com.br", "http://localhost:3000"],
         methods: ["GET", "POST", "PUT", "DELETE"],
     }
 });
 
 // Configuração do CORS
 app.use(cors({
-    origin: ["https://seu-frontend.netlify.app", "http://localhost:3000"], // Substitua pelo domínio do frontend
+    origin: ["https://www.centrodecompra.com.br", "http://localhost:3000"],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type"]
 }));
