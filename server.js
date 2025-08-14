@@ -1,237 +1,153 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
-const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
+const { createServer } = require('http');
 const { Server } = require('socket.io');
-require('dotenv').config();
-
-const app = express();
+const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 
+const app = express();
+const server = createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: ["https://seu-frontend.netlify.app", "http://localhost:3000"], // Substitua pelo domínio do frontend
+        methods: ["GET", "POST", "PUT", "DELETE"],
+    }
+});
+
 // Configuração do CORS
-const allowedOrigins = [
-    'http://localhost:8080',
-    'https://www.centrodecompra.com.br',
-    'https://minha-api-produtos.onrender.com',
-    // Substitua pelo domínio real do frontend, ex.: 'https://seu-frontend.netlify.app'
-];
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            console.error(`Origem não permitida pelo CORS: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
+    origin: ["https://seu-frontend.netlify.app", "http://localhost:3000"], // Substitua pelo domínio do frontend
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type"]
 }));
 app.use(express.json());
-
-// Configuração do banco de dados usando DATABASE_URL
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-});
-
-// Criar tabela produtos se não existir
-pool.connect((err) => {
-    if (err) {
-        console.error('Erro ao conectar ao PostgreSQL:', err);
-        process.exit(1);
-    }
-    console.log('Conectado ao PostgreSQL');
-    pool.query(`
-        CREATE TABLE IF NOT EXISTS produtos (
-            id SERIAL PRIMARY KEY,
-            nome TEXT NOT NULL CHECK (LENGTH(nome) <= 255),
-            categoria TEXT NOT NULL,
-            loja TEXT NOT NULL,
-            imagens TEXT[] NOT NULL,
-            link TEXT NOT NULL CHECK (link ~ '^https?://'),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    `, (err) => {
-        if (err) {
-            console.error('Erro ao criar tabela produtos:', err);
-            process.exit(1);
-        }
-        console.log('Tabela produtos criada ou verificada');
-    });
-});
 
 // Configuração do Cloudinary
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
+    api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Configuração do Socket.IO
-const server = require('http').createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: allowedOrigins,
-        methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    },
+// Configuração do PostgreSQL
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
 });
 
-io.on('connection', (socket) => {
-    console.log('Novo cliente conectado:', socket.id);
-    socket.on('disconnect', () => {
-        console.log('Cliente desconectado:', socket.id);
-    });
-});
+// Conectar ao banco e criar a tabela
+pool.connect()
+    .then(() => {
+        console.log('Conectado ao PostgreSQL');
+        return pool.query(`
+            CREATE TABLE IF NOT EXISTS produtos (
+                id SERIAL PRIMARY KEY,
+                nome VARCHAR(255) NOT NULL,
+                preco NUMERIC DEFAULT 0,
+                preco_com_desconto NUMERIC,
+                imagens TEXT[],
+                categoria VARCHAR(50),
+                loja VARCHAR(50),
+                link TEXT,
+                avaliacao NUMERIC DEFAULT 0,
+                numero_avaliacoes INTEGER DEFAULT 0,
+                CHECK (LENGTH(nome) <= 255),
+                CHECK (link ~ '^https?://')
+            );
+        `);
+    })
+    .then(() => console.log('Tabela produtos criada ou verificada'))
+    .catch(err => console.error('Erro ao conectar ou criar tabela:', err));
 
-// Lista de categorias e lojas permitidas (alinhada com o frontend)
-const CATEGORIAS_PERMITIDAS = [
-    'eletronicos', 'moda', 'fitness', 'casa', 'beleza', 'esportes', 'livros',
-    'infantil', 'Celulares', 'Eletrodomésticos', 'pet', 'jardinagem', 'automotivo',
-    'gastronomia', 'games'
-];
-const LOJAS_PERMITIDAS = ['amazon', 'magalu', 'shein', 'shopee', 'mercadolivre', 'alibaba'];
+// Listas de validação
+const CATEGORIAS_PERMITIDAS = ['todas', 'pet', 'eletronicos', 'moda', 'fitness', 'casa', 'beleza', 'esportes', 'livros', 'infantil', 'Celulares', 'Eletrodomésticos'];
+const LOJAS_PERMITIDAS = ['todas', 'amazon', 'shein', 'shopee', 'magalu', 'mercadolivre', 'alibaba'];
 
-// Rota para buscar produto por ID
-app.get('/api/produtos/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const query = 'SELECT * FROM produtos WHERE id = $1';
-        const { rows } = await pool.query(query, [id]);
-
-        if (rows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
-        }
-
-        res.json({ status: 'success', data: rows[0] });
-    } catch (error) {
-        console.error('Erro ao buscar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao buscar produto' });
-    }
-});
-
-// Rota para listar produtos
+// Rotas
 app.get('/api/produtos', async (req, res) => {
     try {
-        const { categoria, loja, page = 1, limit = 24 } = req.query;
-        const offset = (parseInt(page) - 1) * parseInt(limit);
-
-        if (categoria && categoria !== 'todas' && !CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
-        }
-        if (loja && loja !== 'todas' && !LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
-        }
-
+        const { page = 1, limit = 10, categoria, loja } = req.query;
+        const offset = (page - 1) * limit;
         let query = 'SELECT * FROM produtos';
+        let countQuery = 'SELECT COUNT(*) FROM produtos';
         const values = [];
-        let whereClauses = [];
+        const conditions = [];
 
         if (categoria && categoria !== 'todas') {
-            whereClauses.push('categoria = $' + (values.length + 1));
+            conditions.push(`categoria = $${values.length + 1}`);
             values.push(categoria);
         }
         if (loja && loja !== 'todas') {
-            whereClauses.push('loja = $' + (values.length + 1));
+            conditions.push(`loja = $${values.length + 1}`);
             values.push(loja);
         }
-
-        if (whereClauses.length > 0) {
-            query += ' WHERE ' + whereClauses.join(' AND ');
+        if (conditions.length > 0) {
+            query += ` WHERE ${conditions.join(' AND ')}`;
+            countQuery += ` WHERE ${conditions.join(' AND ')}`;
         }
 
-        const countQuery = `SELECT COUNT(*) FROM produtos${whereClauses.length > 0 ? ' WHERE ' + whereClauses.join(' AND ') : ''}`;
-        const countResult = await pool.query(countQuery, values.slice(0, whereClauses.length));
-
-        query += ' ORDER BY id DESC LIMIT $' + (values.length + 1) + ' OFFSET $' + (values.length + 2);
+        query += ` ORDER BY id DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
         values.push(limit, offset);
 
+        console.log('Executando query:', query, values);
         const { rows } = await pool.query(query, values);
+        const { rows: countRows } = await pool.query(countQuery, values.slice(0, -2));
+        const total = parseInt(countRows[0].count);
 
-        res.json({
-            status: 'success',
-            data: rows,
-            total: parseInt(countResult.rows[0].count),
-        });
+        res.json({ status: 'success', data: rows, total });
     } catch (error) {
-        console.error('Erro ao listar produtos:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao listar produtos' });
+        console.error('Erro ao listar produtos:', error.message, error.stack);
+        res.status(500).json({ status: 'error', message: `Erro ao listar produtos: ${error.message}` });
     }
 });
 
-// Rota para cadastrar produto
+app.get('/api/produtos/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rows } = await pool.query('SELECT * FROM produtos WHERE id = $1', [id]);
+        if (rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
+        }
+        res.json({ status: 'success', data: rows[0] });
+    } catch (error) {
+        console.error('Erro ao buscar produto:', error.message, error.stack);
+        res.status(500).json({ status: 'error', message: `Erro ao buscar produto: ${error.message}` });
+    }
+});
+
 app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
     try {
-        const { nome, categoria, loja, link } = req.body;
+        const { nome, categoria, loja, link, preco = 0 } = req.body;
         const imagens = req.files;
+        console.log('Dados recebidos:', { nome, categoria, loja, link, preco, imagensCount: imagens?.length, imagens: imagens?.map(f => f.originalname) });
 
+        // Validações
         if (!nome || !categoria || !loja || !imagens || imagens.length === 0) {
             return res.status(400).json({ status: 'error', message: 'Campos obrigatórios ausentes, incluindo pelo menos uma imagem' });
         }
-
         if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
+            return res.status(400).json({ status: 'error', message: `Categoria inválida: ${categoria}` });
         }
         if (!LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
+            return res.status(400).json({ status: 'error', message: `Loja inválida: ${loja}` });
         }
         if (!link.match(/^https?:\/\//)) {
-            return res.status(400).json({ status: 'error', message: 'Link inválido' });
+            return res.status(400).json({ status: 'error', message: 'Link inválido, deve começar com http:// ou https://' });
+        }
+        if (nome.length > 255) {
+            return res.status(400).json({ status: 'error', message: 'Nome do produto excede 255 caracteres' });
+        }
+        if (isNaN(preco) || preco < 0) {
+            return res.status(400).json({ status: 'error', message: 'Preço inválido, deve ser um número não negativo' });
         }
 
+        console.log('Iniciando upload para o Cloudinary');
         const imageUrls = [];
         for (const file of imagens) {
-            const result = await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
-                    (error, result) => {
-                        if (error) reject(error);
-                        else resolve(result);
-                    }
-                );
-                uploadStream.end(file.buffer);
-            });
-            imageUrls.push(result.secure_url);
-        }
-
-        const query = `
-            INSERT INTO produtos (nome, categoria, loja, imagens, link)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING *`;
-        const values = [nome, categoria, loja, imageUrls, link];
-        const { rows } = await pool.query(query, values);
-
-        io.emit('novoProduto', rows[0]);
-        res.status(201).json({ status: 'success', message: 'Produto cadastrado com sucesso', data: rows[0] });
-    } catch (error) {
-        console.error('Erro ao cadastrar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao cadastrar produto' });
-    }
-});
-
-// Rota para atualizar produto
-app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { nome, categoria, loja, link } = req.body;
-        const imagens = req.files;
-
-        if (!nome || !categoria || !loja) {
-            return res.status(400).json({ status: 'error', message: 'Campos obrigatórios ausentes' });
-        }
-
-        if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
-            return res.status(400).json({ status: 'error', message: 'Categoria inválida' });
-        }
-        if (!LOJAS_PERMITIDAS.includes(loja)) {
-            return res.status(400).json({ status: 'error', message: 'Loja inválida' });
-        }
-        if (!link.match(/^https?:\/\//)) {
-            return res.status(400).json({ status: 'error', message: 'Link inválido' });
-        }
-
-        const imageUrls = [];
-        if (imagens && imagens.length > 0) {
-            for (const file of imagens) {
+            try {
+                console.log('Fazendo upload de imagem:', file.originalname, file.mimetype, file.size);
                 const result = await new Promise((resolve, reject) => {
                     const uploadStream = cloudinary.uploader.upload_stream(
                         { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
@@ -242,23 +158,89 @@ app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
                     );
                     uploadStream.end(file.buffer);
                 });
+                console.log('Upload bem-sucedido:', result.secure_url);
                 imageUrls.push(result.secure_url);
+            } catch (uploadError) {
+                console.error('Erro ao fazer upload da imagem para o Cloudinary:', uploadError.message, uploadError.stack);
+                return res.status(500).json({ status: 'error', message: `Erro ao fazer upload da imagem: ${uploadError.message}` });
             }
         }
 
+        console.log('Inserindo no PostgreSQL:', { nome, categoria, loja, imageUrls, link, preco });
         const query = `
-            UPDATE produtos
-            SET nome = $1, categoria = $2, loja = $3, imagens = $4, link = $5
-            WHERE id = $6
+            INSERT INTO produtos (nome, categoria, loja, imagens, link, preco)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *`;
-        const values = [
-            nome,
-            categoria,
-            loja,
-            imageUrls.length > 0 ? imageUrls : (await pool.query('SELECT imagens FROM produtos WHERE id = $1', [id])).rows[0]?.imagens || [],
-            link,
-            id
-        ];
+        const values = [nome, categoria, loja, imageUrls, link, preco];
+        const { rows } = await pool.query(query, values);
+        console.log('Produto inserido:', rows[0]);
+
+        io.emit('novoProduto', rows[0]);
+        res.status(201).json({ status: 'success', message: 'Produto cadastrado com sucesso', data: rows[0] });
+    } catch (error) {
+        console.error('Erro ao cadastrar produto:', error.message, error.stack);
+        res.status(500).json({ status: 'error', message: `Erro ao cadastrar produto: ${error.message}` });
+    }
+});
+
+app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nome, categoria, loja, link, preco = 0 } = req.body;
+        const imagens = req.files;
+        console.log('Dados recebidos para atualização:', { id, nome, categoria, loja, link, preco, imagensCount: imagens?.length });
+
+        if (!nome || !categoria || !loja) {
+            return res.status(400).json({ status: 'error', message: 'Campos obrigatórios ausentes' });
+        }
+        if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
+            return res.status(400).json({ status: 'error', message: `Categoria inválida: ${categoria}` });
+        }
+        if (!LOJAS_PERMITIDAS.includes(loja)) {
+            return res.status(400).json({ status: 'error', message: `Loja inválida: ${loja}` });
+        }
+        if (!link.match(/^https?:\/\//)) {
+            return res.status(400).json({ status: 'error', message: 'Link inválido, deve começar com http:// ou https://' });
+        }
+        if (nome.length > 255) {
+            return res.status(400).json({ status: 'error', message: 'Nome do produto excede 255 caracteres' });
+        }
+        if (isNaN(preco) || preco < 0) {
+            return res.status(400).json({ status: 'error', message: 'Preço inválido, deve ser um número não negativo' });
+        }
+
+        const imageUrls = [];
+        if (imagens && imagens.length > 0) {
+            console.log('Iniciando upload para o Cloudinary');
+            for (const file of imagens) {
+                try {
+                    console.log('Fazendo upload de imagem:', file.originalname, file.mimetype, file.size);
+                    const result = await new Promise((resolve, reject) => {
+                        const uploadStream = cloudinary.uploader.upload_stream(
+                            { transformation: [{ width: 300, height: 300, crop: 'limit' }] },
+                            (error, result) => {
+                                if (error) reject(error);
+                                else resolve(result);
+                            }
+                        );
+                        uploadStream.end(file.buffer);
+                    });
+                    console.log('Upload bem-sucedido:', result.secure_url);
+                    imageUrls.push(result.secure_url);
+                } catch (uploadError) {
+                    console.error('Erro ao fazer upload da imagem para o Cloudinary:', uploadError.message, uploadError.stack);
+                    return res.status(500).json({ status: 'error', message: `Erro ao fazer upload da imagem: ${uploadError.message}` });
+                }
+            }
+        }
+
+        console.log('Atualizando no PostgreSQL:', { id, nome, categoria, loja, link, preco, imageUrls });
+        const query = `
+            UPDATE produtos 
+            SET nome = $1, categoria = $2, loja = $3, imagens = COALESCE($4, imagens), link = $5, preco = $6
+            WHERE id = $7
+            RETURNING *`;
+        const values = [nome, categoria, loja, imageUrls.length > 0 ? imageUrls : null, link, preco, id];
         const { rows } = await pool.query(query, values);
 
         if (rows.length === 0) {
@@ -268,28 +250,33 @@ app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
         io.emit('produtoAtualizado', rows[0]);
         res.json({ status: 'success', message: 'Produto atualizado com sucesso', data: rows[0] });
     } catch (error) {
-        console.error('Erro ao atualizar produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao atualizar produto' });
+        console.error('Erro ao atualizar produto:', error.message, error.stack);
+        res.status(500).json({ status: 'error', message: `Erro ao atualizar produto: ${error.message}` });
     }
 });
 
-// Rota para excluir produto
 app.delete('/api/produtos/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const query = 'DELETE FROM produtos WHERE id = $1 RETURNING *';
-        const { rows } = await pool.query(query, [id]);
-
+        console.log('Excluindo produto:', id);
+        const { rows } = await pool.query('DELETE FROM produtos WHERE id = $1 RETURNING *', [id]);
         if (rows.length === 0) {
             return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
         }
-
-        io.emit('produtoExcluido', { id });
+        io.emit('produtoExcluido', rows[0]);
         res.json({ status: 'success', message: 'Produto excluído com sucesso' });
     } catch (error) {
-        console.error('Erro ao excluir produto:', error);
-        res.status(500).json({ status: 'error', message: 'Erro ao excluir produto' });
+        console.error('Erro ao excluir produto:', error.message, error.stack);
+        res.status(500).json({ status: 'error', message: `Erro ao excluir produto: ${error.message}` });
     }
+});
+
+// Socket.IO
+io.on('connection', (socket) => {
+    console.log('Novo cliente conectado:', socket.id);
+    socket.on('disconnect', () => {
+        console.log('Cliente desconectado:', socket.id);
+    });
 });
 
 // Iniciar o servidor
