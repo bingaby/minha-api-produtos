@@ -13,14 +13,25 @@ const io = new Server(server, {
     cors: {
         origin: ["https://www.centrodecompra.com.br", "http://localhost:3000"],
         methods: ["GET", "POST", "PUT", "DELETE"],
+        credentials: true
     }
 });
 
 // Configuração do CORS
 app.use(cors({
-    origin: ["https://www.centrodecompra.com.br", "http://localhost:3000"],
+    origin: (origin, callback) => {
+        const allowedOrigins = ["https://www.centrodecompra.com.br", "http://localhost:3000"];
+        if (!origin || allowedOrigins.includes(origin)) {
+            console.log(`CORS: Permitting origin ${origin}`);
+            callback(null, true);
+        } else {
+            console.error(`CORS: Blocking origin ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type"]
+    allowedHeaders: ["Content-Type"],
+    credentials: true
 }));
 app.use(express.json());
 
@@ -59,7 +70,7 @@ pool.connect()
         `);
     })
     .then(() => console.log('Tabela produtos criada ou verificada'))
-    .catch(err => console.error('Erro ao conectar ou criar tabela:', err));
+    .catch(err => console.error('Erro ao conectar ou criar tabela:', err.message, err.stack));
 
 // Listas de validação
 const CATEGORIAS_PERMITIDAS = ['todas', 'pet', 'eletronicos', 'moda', 'fitness', 'casa', 'beleza', 'esportes', 'livros', 'infantil', 'Celulares', 'Eletrodomésticos'];
@@ -68,6 +79,7 @@ const LOJAS_PERMITIDAS = ['todas', 'amazon', 'shein', 'shopee', 'magalu', 'merca
 // Rotas
 app.get('/api/produtos', async (req, res) => {
     try {
+        console.log('GET /api/produtos recebido:', req.query);
         const { page = 1, limit = 10, categoria, loja } = req.query;
         const offset = (page - 1) * limit;
         let query = 'SELECT * FROM produtos';
@@ -106,6 +118,7 @@ app.get('/api/produtos', async (req, res) => {
 app.get('/api/produtos/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        console.log('GET /api/produtos/:id recebido:', id);
         const { rows } = await pool.query('SELECT * FROM produtos WHERE id = $1', [id]);
         if (rows.length === 0) {
             return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
@@ -121,7 +134,7 @@ app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
     try {
         const { nome, categoria, loja, link, preco = 0 } = req.body;
         const imagens = req.files;
-        console.log('Dados recebidos:', { nome, categoria, loja, link, preco, imagensCount: imagens?.length, imagens: imagens?.map(f => f.originalname) });
+        console.log('POST /api/produtos recebido:', { nome, categoria, loja, link, preco, imagensCount: imagens?.length, imagens: imagens?.map(f => f.originalname) });
 
         // Validações
         if (!nome || !categoria || !loja || !imagens || imagens.length === 0) {
@@ -188,7 +201,7 @@ app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
         const { id } = req.params;
         const { nome, categoria, loja, link, preco = 0 } = req.body;
         const imagens = req.files;
-        console.log('Dados recebidos para atualização:', { id, nome, categoria, loja, link, preco, imagensCount: imagens?.length });
+        console.log('PUT /api/produtos/:id recebido:', { id, nome, categoria, loja, link, preco, imagensCount: imagens?.length });
 
         if (!nome || !categoria || !loja) {
             return res.status(400).json({ status: 'error', message: 'Campos obrigatórios ausentes' });
@@ -258,7 +271,7 @@ app.put('/api/produtos/:id', upload.array('imagens', 5), async (req, res) => {
 app.delete('/api/produtos/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        console.log('Excluindo produto:', id);
+        console.log('DELETE /api/produtos/:id recebido:', id);
         const { rows } = await pool.query('DELETE FROM produtos WHERE id = $1 RETURNING *', [id]);
         if (rows.length === 0) {
             return res.status(404).json({ status: 'error', message: 'Produto não encontrado' });
