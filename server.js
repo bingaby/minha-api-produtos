@@ -18,21 +18,23 @@ const io = new Server(server, {
 });
 
 // Configuração do CORS
-app.use(cors({
-    origin: (origin, callback) => {
-        const allowedOrigins = ["https://www.centrodecompra.com.br", "http://localhost:3000"];
-        if (!origin || allowedOrigins.includes(origin)) {
-            console.log(`CORS: Permitting origin ${origin}`);
-            callback(null, true);
-        } else {
-            console.error(`CORS: Blocking origin ${origin}`);
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type"],
-    credentials: true
-}));
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    const allowedOrigins = ["https://www.centrodecompra.com.br", "http://localhost:3000"];
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        console.log(`CORS: Permitindo origem ${origin}`);
+    } else {
+        console.log(`CORS: Bloqueando origem ${origin}`);
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    next();
+});
 app.use(express.json());
 
 // Configuração do Cloudinary
@@ -64,6 +66,8 @@ pool.connect()
                 link TEXT,
                 avaliacao NUMERIC DEFAULT 0,
                 numero_avaliacoes INTEGER DEFAULT 0,
+                views INTEGER DEFAULT 0,
+                sales INTEGER DEFAULT 0,
                 CHECK (LENGTH(nome) <= 255),
                 CHECK (link ~ '^https?://')
             );
@@ -181,8 +185,8 @@ app.post('/api/produtos', upload.array('imagens', 5), async (req, res) => {
 
         console.log('Inserindo no PostgreSQL:', { nome, categoria, loja, imageUrls, link, preco });
         const query = `
-            INSERT INTO produtos (nome, categoria, loja, imagens, link, preco)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO produtos (nome, categoria, loja, imagens, link, preco, views, sales)
+            VALUES ($1, $2, $3, $4, $5, $6, 0, 0)
             RETURNING *`;
         const values = [nome, categoria, loja, imageUrls, link, preco];
         const { rows } = await pool.query(query, values);
