@@ -77,14 +77,29 @@ pool.connect()
     .catch(err => console.error('Erro ao conectar ou criar tabela:', err.message, err.stack));
 
 // Listas de validação
-const CATEGORIAS_PERMITIDAS = ['todas', 'pet', 'eletronicos', 'moda', 'fitness', 'casa', 'beleza', 'esportes', 'livros', 'infantil', 'Celulares', 'Eletrodomésticos'];
-const LOJAS_PERMITIDAS = ['todas', 'amazon', 'shein', 'shopee', 'magalu', 'mercadolivre', 'alibaba'];
+const CATEGORIAS_PERMITIDAS = [
+    'eletronicos',
+    'moda',
+    'casa-e-decoracao',
+    'esportes',
+    'beleza',
+    'livros',
+    'brinquedos',
+    'saude',
+    'automotivo',
+    'alimentos',
+    'pet-shop',
+    'celulares',
+    'eletrodomesticos',
+    'infantil'
+];
+const LOJAS_PERMITIDAS = ['todas', 'amazon', 'shein', 'shopee', 'magalu', 'mercadolivre', 'alibaba', 'aliexpress'];
 
 // Rotas
 app.get('/api/produtos', async (req, res) => {
     try {
         console.log('GET /api/produtos recebido:', req.query);
-        const { page = 1, limit = 10, categoria, loja, busca } = req.query; // Adicionado parâmetro busca
+        const { page = 1, limit = 10, categoria, loja, busca } = req.query;
         const offset = (page - 1) * limit;
         let query = 'SELECT * FROM produtos';
         let countQuery = 'SELECT COUNT(*) FROM produtos';
@@ -99,10 +114,16 @@ app.get('/api/produtos', async (req, res) => {
 
         // Filtros de categoria e loja
         if (categoria && categoria !== 'todas') {
+            if (!CATEGORIAS_PERMITIDAS.includes(categoria)) {
+                return res.status(400).json({ status: 'error', message: `Categoria inválida: ${categoria}` });
+            }
             conditions.push(`categoria = $${values.length + 1}`);
             values.push(categoria);
         }
         if (loja && loja !== 'todas') {
+            if (!LOJAS_PERMITIDAS.includes(loja)) {
+                return res.status(400).json({ status: 'error', message: `Loja inválida: ${loja}` });
+            }
             conditions.push(`loja = $${values.length + 1}`);
             values.push(loja);
         }
